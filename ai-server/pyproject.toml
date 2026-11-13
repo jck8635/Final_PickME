@@ -1,0 +1,15 @@
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff.lint.per-file-ignores]
+# 원본(pickme-flask)에서 옮긴 정규식/프롬프트 문자열은 줄 길이를 그대로 둡니다.
+"app/services/chat_service.py" = ["E501"]
+"tests/*" = ["E501"]

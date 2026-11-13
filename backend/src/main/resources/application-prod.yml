@@ -1,0 +1,9 @@
+# 팀 공용/배포: PostgreSQL. 스키마 변경은 PL 권한이므로 자동 변경(ddl-auto)은 끕니다.
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate

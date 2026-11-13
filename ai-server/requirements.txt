@@ -1,0 +1,7 @@
+# 서버 (Python 3.13)
+fastapi[standard]>=0.162,<0.163
+pydantic-settings>=2.14,<3
+httpx>=0.28,<1
+
+# LLM (기존 pickme-flask 와 동일 버전 유지)
+google-genai==2.32.0

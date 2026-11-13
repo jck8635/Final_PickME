@@ -1,0 +1,31 @@
+{
+  "files.encoding": "utf8",
+  "files.eol": "\n",
+  "editor.formatOnSave": true,
+
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.import.gradle.enabled": true,
+  "java.compile.nullAnalysis.mode": "automatic",
+
+  "python.analysis.extraPaths": ["./ai-server"],
+  "python.testing.pytestEnabled": true,
+  "python.testing.cwd": "${workspaceFolder}/ai-server",
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
+
+  "[typescript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[typescriptreact]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[json]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.gradle": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/build": true,
+    "**/dist": true,
+    "**/.venv": true
+  }
+}

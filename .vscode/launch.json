@@ -1,0 +1,51 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "1) Spring Boot (8080)",
+      "type": "java",
+      "request": "launch",
+      "mainClass": "com.pickme.PickmeApplication",
+      "projectName": "backend",
+      "cwd": "${workspaceFolder}/backend"
+    },
+    {
+      "name": "2) FastAPI (8000)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app.main:app",
+        "--reload",
+        "--port",
+        "8000"
+      ],
+      "cwd": "${workspaceFolder}/ai-server",
+      "envFile": "${workspaceFolder}/ai-server/.env",
+      "jinja": false
+    },
+    {
+      "name": "3) React (5173)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "cwd": "${workspaceFolder}/frontend",
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "전체 실행 (Spring + FastAPI + React)",
+      "configurations": [
+        "1) Spring Boot (8080)",
+        "2) FastAPI (8000)",
+        "3) React (5173)"
+      ],
+      "stopAll": true
+    }
+  ]
+}

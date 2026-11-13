@@ -1,0 +1,7 @@
+# 머신러닝/딥러닝 기능을 만들 때 설치 (용량이 큼)
+-r requirements.txt
+numpy>=2.3,<3
+pandas>=2.3
+scikit-learn>=1.9,<2
+joblib>=1.5
+torch>=2.10

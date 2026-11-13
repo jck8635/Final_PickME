@@ -1,0 +1,47 @@
+/*
+ * 기존 pickme-flask 의 CSS(static/css/*, chat 템플릿 내부 style)를 legacy/ 에 그대로 옮겼습니다.
+ * 원본은 Tailwind CDN 과 함께 쓰였으므로 레이어 순서를
+ *   Tailwind 기본(base) < 원본 CSS(legacy) < Tailwind 유틸리티(utilities)
+ * 로 두어 원본과 같은 모양이 나오게 합니다.
+ */
+@layer theme, base, legacy, components, utilities;
+
+@import 'tailwindcss';
+
+@import './legacy/style.css' layer(legacy);
+@import './legacy/member.css' layer(legacy);
+@import './legacy/decision.css' layer(legacy);
+@import './legacy/chat.css' layer(legacy);
+
+/* ---------- React 전환하면서 추가한 최소 스타일 ---------- */
+@layer legacy {
+  .alert-stack {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .alert-stack .alert {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .alert-close {
+    background: none;
+    color: inherit;
+    padding: 0 4px;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .nav-active {
+    font-weight: 700;
+  }
+
+  .community-login-cta {
+    margin: 0 0 16px;
+  }
+}

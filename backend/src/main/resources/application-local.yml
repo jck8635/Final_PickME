@@ -1,0 +1,10 @@
+# 로컬 개발: DB 설치 없이 H2 파일 DB 사용 (기존 Flask 의 sqlite 개발 모드에 해당)
+spring:
+  datasource:
+    url: jdbc:h2:file:./data/pickme;MODE=PostgreSQL;AUTO_SERVER=TRUE
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true

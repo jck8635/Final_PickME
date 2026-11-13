@@ -1,0 +1,15 @@
+{
+  "recommendations": [
+    "vscjava.vscode-java-pack",
+    "vmware.vscode-boot-dev-pack",
+    "vscjava.vscode-gradle",
+    "vscjava.vscode-lombok",
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "ms-python.debugpy",
+    "charliermarsh.ruff",
+    "esbenp.prettier-vscode",
+    "editorconfig.editorconfig",
+    "humao.rest-client"
+  ]
+}

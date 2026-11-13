@@ -1,0 +1,45 @@
+# 공통 — 비밀값(API 키, DB 비밀번호)은 절대 올리지 않습니다. 예시 파일(.env.example)만 커밋.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+.DS_Store
+*.log
+
+# Spring Boot (로컬 H2 DB 파일 포함 — 회원 비밀번호 해시가 들어 있음)
+backend/data/
+*.mv.db
+*.trace.db
+*.db
+backend/build/
+backend/.gradle/
+backend/bin/
+backend/out/
+*.class
+
+# FastAPI
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+ai-server/models/*.pkl
+ai-server/models/*.pt
+
+# React
+node_modules/
+frontend/dist/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# IDE (.vscode 는 팀 공유용으로 커밋)
+.idea/
+*.iml
+
+# 개인 도구 설정
+.claude/
