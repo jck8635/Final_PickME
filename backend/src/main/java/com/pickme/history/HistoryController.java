@@ -1,3 +1,4 @@
+
 package com.pickme.history;
 
 import java.util.List;
@@ -31,28 +32,28 @@ public class HistoryController {
 
     @GetMapping
     public List<HistoryService.HistoryItem> list(
-            @RequestParam(defaultValue = "") String q,
-            @RequestParam(defaultValue = "전체") String category,
-            @RequestParam(defaultValue = "false") boolean bookmarked,
-            @RequestParam(defaultValue = "latest") String sort) {
+            @RequestParam(name = "q", defaultValue = "") String q,
+            @RequestParam(name = "category", defaultValue = "전체") String category,
+            @RequestParam(name = "bookmarked", defaultValue = "false") boolean bookmarked,
+            @RequestParam(name = "sort", defaultValue = "latest") String sort) {
         return historyService.list(LoginUser.requireId(), q.length() > 100 ? q.substring(0, 100) : q,
                 category, bookmarked, sort);
     }
 
     @PostMapping("/{id}/bookmark")
-    public Map<String, Boolean> toggleBookmark(@PathVariable Integer id) {
+    public Map<String, Boolean> toggleBookmark(@PathVariable("id") Integer id) {
         return Map.of("bookmarked", historyService.toggleBookmark(id, LoginUser.requireId()));
     }
 
     @PutMapping("/{id}/retrospective")
-    public HistoryService.HistoryItem updateRetrospective(@PathVariable Integer id,
+    public HistoryService.HistoryItem updateRetrospective(@PathVariable("id") Integer id,
             @RequestBody RetrospectiveRequest req) {
         return historyService.updateRetrospective(id, LoginUser.requireId(), req.actualChoice(),
                 req.satisfactionScore(), req.retrospectiveNote());
     }
 
     @DeleteMapping("/{id}")
-    public Map<String, Boolean> delete(@PathVariable Integer id) {
+    public Map<String, Boolean> delete(@PathVariable("id") Integer id) {
         historyService.delete(id, LoginUser.requireId());
         return Map.of("success", true);
     }
