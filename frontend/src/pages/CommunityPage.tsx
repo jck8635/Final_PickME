@@ -1,31 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, RefObject } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 
-import ReportButton from "../components/ReportButton";
-import { api, errorMessage, isUnauthorized } from "../api/client";
-import type { CommentView, CommunityFeed, PostView } from "../api/types";
+import { api, errorMessage } from "../api/client";
+import type { CommunityFeed } from "../api/types";
 import { useAuth, useFlash } from "../lib/app-context";
-import { formatDate, formatShort } from "../lib/format";
-
-const CATEGORIES = [
-  "음식/식사",
-  "진로/이직",
-  "쇼핑/소비",
-  "연애/관계",
-  "일상/생활",
-  "학습/자기계발",
-  "여행/여가",
-  "기타",
-];
-
-const LOGIN_REQUIRED =
-  "투표, 공감, 댓글, 신고, 게시글 작성은 로그인 후 이용할 수 있습니다.";
-
-type Run = (
-  action: () => Promise<unknown>,
-  success?: string,
-) => Promise<boolean>;
+import { formatDate } from "../lib/format";
+import {
+  CATEGORIES,
+  LOGIN_REQUIRED,
+  useCommunityAction,
+} from "./community-actions";
+import type { Run } from "./community-actions";
 
 export default function CommunityPage() {
   const { user } = useAuth();
@@ -36,9 +22,18 @@ export default function CommunityPage() {
   const category = params.get("category") ?? "전체";
   const q = params.get("q") ?? "";
   const scope = params.get("scope") ?? "all";
+  const requestedPage = Number(params.get("page") ?? "1");
+  const page =
+    Number.isSafeInteger(requestedPage) &&
+    requestedPage > 0 &&
+    requestedPage <= 107374182
+      ? requestedPage
+      : 1;
+  const searchString = params.toString() ? `?${params.toString()}` : "";
+  const legacyPost = useLocation().hash.match(/^#post-([0-9]+)$/)?.[1];
 
-  const [reporting, setReporting] = useState(false);
   const [feed, setFeed] = useState<CommunityFeed | null>(null);
+  const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState({ q, category });
 
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -50,40 +45,25 @@ export default function CommunityPage() {
 
     try {
       const res = await api.get<CommunityFeed>("/community/posts", {
-        params: { category, q, scope },
+        params: { category, q, scope, page },
       });
 
       if (version !== requestVersion.current) return;
 
       setFeed(res.data);
+      setLoadError("");
       lastUpdate.current = res.data.latestUpdate;
     } catch (error) {
       if (version === requestVersion.current) {
-        flash(errorMessage(error, "게시글을 불러오지 못했어요."));
+        setLoadError(errorMessage(error, "게시글을 불러오지 못했어요."));
       }
     }
-  }, [category, q, scope, flash]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    void api
-      .get<{ available: boolean }>("/community/reporting", {
-        signal: controller.signal,
-      })
-      .then((res) => {
-        setReporting(res.data.available);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setReporting(false);
-      });
-
-    return () => controller.abort();
-  }, []);
+  }, [category, q, scope, page]);
 
   useEffect(() => {
     requestVersion.current++;
     setFeed(null);
+    setLoadError("");
 
     if (scope !== "all" && !user) return;
 
@@ -100,6 +80,7 @@ export default function CommunityPage() {
 
   useEffect(() => {
     let checking = false;
+    let active = true;
 
     const timer = window.setInterval(async () => {
       if (
@@ -116,7 +97,7 @@ export default function CommunityPage() {
       try {
         const res = await api.get<{ updatedAt: string }>("/community/updates");
 
-        if (lastUpdate.current !== res.data.updatedAt) {
+        if (active && lastUpdate.current !== res.data.updatedAt) {
           await load();
         }
       } catch {
@@ -126,41 +107,41 @@ export default function CommunityPage() {
       }
     }, 5000);
 
-    return () => window.clearInterval(timer);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, [load, scope, user]);
 
+  const run = useCommunityAction(load);
+
   useEffect(() => {
-    if (feed && window.location.hash) {
-      document.getElementById(window.location.hash.slice(1))?.scrollIntoView();
+    if (legacyPost) {
+      navigate(
+        { pathname: `/community/posts/${legacyPost}`, search: searchString },
+        { replace: true },
+      );
     }
-  }, [feed]);
+  }, [legacyPost, navigate, searchString]);
 
-  const run: Run = useCallback(
-    async (action, success) => {
-      if (!user) {
-        flash(LOGIN_REQUIRED);
-        navigate("/login?next=/community");
-        return false;
-      }
+  useEffect(() => {
+    if (feed && feed.page > Math.max(1, feed.totalPages)) {
+      setParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          next.set("page", String(Math.max(1, feed.totalPages)));
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [feed, setParams]);
 
-      try {
-        await action();
-        if (success) flash(success);
-        await load();
-        return true;
-      } catch (error) {
-        if (isUnauthorized(error)) {
-          flash(LOGIN_REQUIRED);
-          navigate("/login?next=/community");
-        } else {
-          flash(errorMessage(error));
-        }
-
-        return false;
-      }
-    },
-    [user, flash, navigate, load],
-  );
+  function goToPage(nextPage: number) {
+    const next = new URLSearchParams(params);
+    next.set("page", String(nextPage));
+    setParams(next);
+  }
 
   function submitSearch(e: FormEvent) {
     e.preventDefault();
@@ -229,10 +210,9 @@ export default function CommunityPage() {
                   return;
                 }
 
-                setFeed(null);
-
                 const next = new URLSearchParams(params);
                 next.set("scope", value);
+                next.delete("page");
                 setParams(next);
               }}
             >
@@ -289,6 +269,18 @@ export default function CommunityPage() {
 
         <div className="community-layout">
           <div className="community-feed-column">
+            {loadError && (
+              <p role="alert">
+                {loadError}{" "}
+                <button type="button" onClick={() => void load()}>
+                  다시 불러오기
+                </button>
+              </p>
+            )}
+            {!feed && !loadError && (scope === "all" || user) && (
+              <p role="status">게시글을 불러오는 중입니다.</p>
+            )}
+
             {feed && posts.length === 0 && (
               <div className="community-empty">
                 {scope === "mine"
@@ -301,36 +293,88 @@ export default function CommunityPage() {
               </div>
             )}
 
-            {feed?.featuredPostId && (
+            {feed?.featuredPost && (
               <p className="featured-note">
-                {category} 인기 고민을 먼저 보여드리고, 나머지는 최신순으로
-                정렬했습니다.
+                <span className="featured-pill">카테고리 인기 글</span>{" "}
+                <Link
+                  to={{
+                    pathname: `/community/posts/${feed.featuredPost.id}`,
+                    search: searchString,
+                  }}
+                >
+                  {feed.featuredPost.title}
+                </Link>
               </p>
             )}
 
             <div className="community-feed">
               {posts.map((post) => (
-                <PostCard
-                  key={post.id}
-                  post={post}
-                  featured={post.id === feed?.featuredPostId}
-                  loggedIn={Boolean(user)}
-                  reporting={reporting}
-                  run={run}
-                />
+                <article className="community-card" key={post.id}>
+                  <div className="post-meta">
+                    <span className="category-pill">{post.category}</span>
+                    <span>작성자 {post.authorNickname}</span>
+                    <time dateTime={post.createdAt}>
+                      {formatDate(post.createdAt)}
+                    </time>
+                  </div>
+                  <h2>
+                    <Link
+                      to={{
+                        pathname: `/community/posts/${post.id}`,
+                        search: searchString,
+                      }}
+                    >
+                      {post.title}
+                    </Link>
+                  </h2>
+                  <p className="post-content">
+                    {post.content.length > 180
+                      ? `${post.content.slice(0, 180)}…`
+                      : post.content}
+                  </p>
+                  <div className="post-actions">
+                    <span>투표 {post.totalVotes}표</span>
+                    <span>공감 {post.likeCount}개</span>
+                    <span>댓글 {post.commentCount}개</span>
+                  </div>
+                </article>
               ))}
             </div>
+
+            {feed && feed.totalPages > 1 && feed.page <= feed.totalPages && (
+              <nav className="dialog-actions" aria-label="게시글 페이지">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => goToPage(page - 1)}
+                >
+                  이전
+                </button>
+                <span aria-live="polite">
+                  {page} / {feed.totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={page >= feed.totalPages}
+                  onClick={() => goToPage(page + 1)}
+                >
+                  다음
+                </button>
+              </nav>
+            )}
           </div>
 
           <aside className="community-sidebar" aria-label="인기 게시물">
             <RankPanel
               title="공감 많은 고민"
               unit="공감"
+              search={searchString}
               items={feed?.topLiked ?? []}
             />
             <RankPanel
               title="댓글 많은 고민"
               unit="댓글"
+              search={searchString}
               items={feed?.topCommented ?? []}
             />
           </aside>
@@ -346,9 +390,11 @@ function RankPanel({
   title,
   unit,
   items,
+  search,
 }: {
   title: string;
   unit: string;
+  search: string;
   items: { id: number; title: string; count: number }[];
 }) {
   return (
@@ -361,20 +407,9 @@ function RankPanel({
 
         {items.map((item) => (
           <li key={item.id}>
-            <a
-              href={`/community#post-${item.id}`}
-              onClick={(e) => {
-                const el = document.getElementById(`post-${item.id}`);
-
-                if (el) {
-                  e.preventDefault();
-                  el.scrollIntoView({ behavior: "smooth" });
-                  history.replaceState(null, "", `#post-${item.id}`);
-                }
-              }}
-            >
+            <Link to={{ pathname: `/community/posts/${item.id}`, search }}>
               {item.title}
-            </a>
+            </Link>
             <span>
               {item.count} {unit}
             </span>
@@ -382,354 +417,6 @@ function RankPanel({
         ))}
       </ol>
     </section>
-  );
-}
-
-function PostCard({
-  post,
-  featured,
-  loggedIn,
-  reporting,
-  run,
-}: {
-  post: PostView;
-  featured: boolean;
-  loggedIn: boolean;
-  reporting: boolean;
-  run: Run;
-}) {
-  const [comment, setComment] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function act(action: () => Promise<unknown>, success?: string) {
-    setBusy(true);
-
-    try {
-      return await run(action, success);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submitComment(e: FormEvent) {
-    e.preventDefault();
-
-    const ok = await act(
-      () =>
-        api.post(`/community/posts/${post.id}/comments`, {
-          content: comment,
-        }),
-      "댓글을 등록했습니다.",
-    );
-
-    if (ok) setComment("");
-  }
-
-  return (
-    <article className="community-card" id={`post-${post.id}`}>
-      <div className="post-meta">
-        {featured && <span className="featured-pill">인기 글</span>}
-        <span className="category-pill">{post.category}</span>
-        <span>작성자 {post.authorNickname}</span>
-        <time dateTime={post.createdAt}>{formatDate(post.createdAt)}</time>
-        {post.aiRecommendation && (
-          <span className="ai-pill">AI 추천: {post.aiRecommendation}</span>
-        )}
-      </div>
-
-      <ReportButton postId={post.id} enabled={reporting} />
-
-      {post.mine && (
-        <div className="post-owner-actions">
-          <EditPostForm post={post} run={run} />
-
-          <button
-            type="button"
-            className="text-button danger-button"
-            disabled={busy}
-            onClick={() => {
-              if (
-                window.confirm(
-                  "게시글과 투표, 공감, 댓글이 모두 삭제됩니다. 삭제할까요?",
-                )
-              ) {
-                void act(
-                  () => api.delete(`/community/posts/${post.id}`),
-                  "게시글을 삭제했습니다.",
-                );
-              }
-            }}
-          >
-            삭제
-          </button>
-        </div>
-      )}
-
-      <h2>{post.title}</h2>
-      <p className="post-content">{post.content}</p>
-
-      <div className="vote-heading">
-        <strong>선택지를 클릭해 투표하세요</strong>
-        <span>총 {post.totalVotes}명 참여</span>
-      </div>
-
-      <div className="option-list">
-        {post.options.map((option) => {
-          const voted = post.myOptionId === option.id;
-
-          return (
-            <div key={option.id} className="option-form">
-              <button
-                className={`vote-option${voted ? " is-voted" : ""}`}
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  void act(
-                    () =>
-                      api.post(
-                        `/community/posts/${post.id}/votes/${option.id}`,
-                      ),
-                    "투표가 반영되었습니다.",
-                  )
-                }
-              >
-                <span
-                  className="vote-bar"
-                  style={{ width: `${option.percent}%` }}
-                />
-                <span className="option-name">
-                  {option.name}
-                  {voted && " ✓"}
-                </span>
-                <span className="vote-count">
-                  {option.count}표 · {option.percent}%
-                </span>
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      {loggedIn && post.myOptionId && (
-        <div className="cancel-vote-form">
-          <button
-            type="button"
-            className="text-button"
-            disabled={busy}
-            onClick={() =>
-              void act(
-                () => api.delete(`/community/posts/${post.id}/votes`),
-                "투표를 취소했습니다.",
-              )
-            }
-          >
-            투표 취소
-          </button>
-        </div>
-      )}
-
-      <div className="post-actions">
-        <button
-          className={`text-button${post.liked ? " liked" : ""}`}
-          type="button"
-          disabled={busy}
-          onClick={() =>
-            void act(() => api.post(`/community/posts/${post.id}/like`))
-          }
-        >
-          ♥ 공감 {post.likeCount}
-        </button>
-        <span>댓글 및 조언 {post.comments.length}개</span>
-      </div>
-
-      <section className="comment-list">
-        {post.comments.map((c) => (
-          <CommentItem key={c.id} postId={post.id} comment={c} run={run} />
-        ))}
-
-        {loggedIn ? (
-          <form className="comment-form" onSubmit={submitComment}>
-            <input
-              value={comment}
-              maxLength={2000}
-              required
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="경험이나 조언을 댓글로 나눠주세요"
-            />
-            <button type="submit" disabled={busy}>
-              등록
-            </button>
-          </form>
-        ) : (
-          <p className="login-hint">
-            <Link to="/login?next=/community">로그인</Link>
-            하면 댓글을 남길 수 있습니다.
-          </p>
-        )}
-      </section>
-    </article>
-  );
-}
-
-function EditPostForm({ post, run }: { post: PostView; run: Run }) {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
-  const [form, setForm] = useState({
-    title: post.title,
-    content: post.content,
-    category: post.category,
-  });
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-
-    const ok = await run(
-      () => api.put(`/community/posts/${post.id}`, form),
-      "게시글을 수정했습니다.",
-    );
-
-    if (ok && detailsRef.current) {
-      detailsRef.current.open = false;
-    }
-  }
-
-  return (
-    <details className="inline-edit" ref={detailsRef}>
-      <summary className="text-button">수정</summary>
-
-      <form className="owner-edit-form" onSubmit={submit}>
-        <label>
-          카테고리
-          <select
-            value={form.category}
-            onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                category: e.target.value,
-              }))
-            }
-            required
-          >
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          제목
-          <input
-            maxLength={200}
-            value={form.title}
-            onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                title: e.target.value,
-              }))
-            }
-            required
-          />
-        </label>
-
-        <label>
-          내용
-          <textarea
-            maxLength={5000}
-            rows={3}
-            value={form.content}
-            onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                content: e.target.value,
-              }))
-            }
-            required
-          />
-        </label>
-
-        <button type="submit">수정 저장</button>
-      </form>
-    </details>
-  );
-}
-
-function CommentItem({
-  postId,
-  comment,
-  run,
-}: {
-  postId: number;
-  comment: CommentView;
-  run: Run;
-}) {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
-  const [content, setContent] = useState(comment.content);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-
-    const ok = await run(
-      () =>
-        api.put(`/community/posts/${postId}/comments/${comment.id}`, {
-          content,
-        }),
-      "댓글을 수정했습니다.",
-    );
-
-    if (ok && detailsRef.current) {
-      detailsRef.current.open = false;
-    }
-  }
-
-  return (
-    <div className="comment">
-      <div className="comment-meta">
-        <strong>{comment.authorNickname}</strong>
-        <time dateTime={comment.createdAt}>
-          {formatShort(comment.createdAt)}
-        </time>
-      </div>
-
-      {comment.mine && (
-        <div className="comment-owner-actions">
-          <details className="inline-edit comment-owner-edit" ref={detailsRef}>
-            <summary className="text-button">수정</summary>
-
-            <form className="owner-edit-form" onSubmit={submit}>
-              <textarea
-                maxLength={2000}
-                rows={2}
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                required
-              />
-              <button type="submit">댓글 수정 저장</button>
-            </form>
-          </details>
-
-          <button
-            type="button"
-            className="text-button danger-button"
-            onClick={() => {
-              if (window.confirm("이 댓글을 삭제할까요?")) {
-                void run(
-                  () =>
-                    api.delete(
-                      `/community/posts/${postId}/comments/${comment.id}`,
-                    ),
-                  "댓글을 삭제했습니다.",
-                );
-              }
-            }}
-          >
-            삭제
-          </button>
-        </div>
-      )}
-
-      <p className="comment-content">{comment.content}</p>
-    </div>
   );
 }
 
@@ -748,27 +435,41 @@ function NewPostDialog({
   };
 
   const [form, setForm] = useState(empty);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
 
-    const ok = await run(
-      () =>
-        api.post("/community/posts", {
-          ...form,
-          options: form.options.map((o) => o.trim()).filter(Boolean),
-        }),
-      "고민 투표를 등록했습니다.",
-    );
+    if (busy) return;
+    setError("");
+    setBusy(true);
+    try {
+      const ok = await run(
+        () =>
+          api.post("/community/posts", {
+            ...form,
+            options: form.options.map((o) => o.trim()).filter(Boolean),
+          }),
+        "고민 투표를 등록했습니다.",
+        { onError: setError },
+      );
 
-    if (ok) {
-      setForm(empty);
-      dialogRef.current?.close();
+      if (ok) {
+        setForm(empty);
+        dialogRef.current?.close();
+      }
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
-    <dialog ref={dialogRef} className="post-dialog">
+    <dialog
+      ref={dialogRef}
+      className="post-dialog"
+      onClose={() => setError("")}
+    >
       <form onSubmit={submit}>
         <h2>새로운 고민 투표 등록</h2>
 
@@ -846,6 +547,8 @@ function NewPostDialog({
           />
         ))}
 
+        {error && <p role="alert">{error}</p>}
+
         <div className="dialog-actions">
           <button
             type="button"
@@ -854,7 +557,9 @@ function NewPostDialog({
           >
             취소
           </button>
-          <button type="submit">투표 올리기</button>
+          <button type="submit" disabled={busy}>
+            투표 올리기
+          </button>
         </div>
       </form>
     </dialog>

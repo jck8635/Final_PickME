@@ -8,6 +8,7 @@ import { useAuth, useFlash } from "./lib/app-context";
 import AdminPage from "./pages/AdminPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import ChatPage from "./pages/ChatPage";
+import CommunityDetailPage from "./pages/CommunityDetailPage";
 import CommunityPage from "./pages/CommunityPage";
 import DecisionPage from "./pages/DecisionPage";
 import HistoryPage from "./pages/HistoryPage";
@@ -64,6 +65,10 @@ export default function App() {
         <Route path="decision" element={<DecisionPage />} />
         <Route path="history" element={<HistoryPage />} />
         <Route path="community" element={<CommunityPage />} />
+        <Route
+          path="community/posts/:postId"
+          element={<CommunityDetailPage />}
+        />
         <Route path="login" element={<LoginPage />} />
         <Route path="signup" element={<SignupPage />} />
         <Route

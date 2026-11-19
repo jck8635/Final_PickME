@@ -32,13 +32,19 @@ public class CommunityController {
     public CommunityService.Feed feed(
             @RequestParam(name = "category", defaultValue = "전체") String category,
             @RequestParam(name = "q", defaultValue = "") String q,
-            @RequestParam(name = "scope", defaultValue = "all") String scope) {
+            @RequestParam(name = "scope", defaultValue = "all") String scope,
+            @RequestParam(name = "page", defaultValue = "1") int page) {
 
         return community.feed(
                 category,
                 q,
                 LoginUser.currentIdOrNull(),
-                scope);
+                scope, page);
+    }
+
+    @GetMapping("/posts/{postId}")
+    public CommunityService.PostView detail(@PathVariable("postId") Integer postId) {
+        return community.detail(postId, LoginUser.currentIdOrNull());
     }
 
     @GetMapping("/updates")
@@ -51,7 +57,7 @@ public class CommunityController {
     public Map<String, Object> create(
             @RequestBody PostRequest req) {
 
-        Integer id = community.createPost(
+        var result = community.createPost(
                 LoginUser.requireId(),
                 req.title(),
                 req.content(),
@@ -59,8 +65,9 @@ public class CommunityController {
                 req.options());
 
         return Map.of(
-                "id", id,
-                "message", "고민 투표를 등록했습니다.");
+                "id", result.id(),
+                "message", "고민 투표를 등록했습니다.",
+                "warning", result.warning());
     }
 
     @PutMapping("/posts/{postId}")
@@ -68,14 +75,14 @@ public class CommunityController {
             @PathVariable("postId") Integer postId,
             @RequestBody PostRequest req) {
 
-        community.editPost(
+        String warning = community.editPost(
                 LoginUser.requireId(),
                 postId,
                 req.title(),
                 req.content(),
                 req.category());
 
-        return Map.of("message", "게시글을 수정했습니다.");
+        return Map.of("message", "게시글을 수정했습니다.", "warning", warning);
     }
 
     @DeleteMapping("/posts/{postId}")
@@ -130,12 +137,12 @@ public class CommunityController {
             @PathVariable("postId") Integer postId,
             @RequestBody CommentRequest req) {
 
-        community.addComment(
+        String warning = community.addComment(
                 LoginUser.requireId(),
                 postId,
                 req.content());
 
-        return Map.of("message", "댓글을 등록했습니다.");
+        return Map.of("message", "댓글을 등록했습니다.", "warning", warning);
     }
 
     @PutMapping("/posts/{postId}/comments/{commentId}")
@@ -144,13 +151,13 @@ public class CommunityController {
             @PathVariable("commentId") Integer commentId,
             @RequestBody CommentRequest req) {
 
-        community.editComment(
+        String warning = community.editComment(
                 LoginUser.requireId(),
                 postId,
                 commentId,
                 req.content());
 
-        return Map.of("message", "댓글을 수정했습니다.");
+        return Map.of("message", "댓글을 수정했습니다.", "warning", warning);
     }
 
     @DeleteMapping("/posts/{postId}/comments/{commentId}")

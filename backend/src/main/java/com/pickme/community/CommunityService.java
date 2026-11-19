@@ -3,6 +3,7 @@ package com.pickme.community;
 import java.time.Instant;
 import java.util.*;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +23,7 @@ public class CommunityService {
     private final CommunityVoteRepository votes;
     private final CommunityLikeRepository likes;
     private final UserRepository users;
+    private final CommunityModeration moderation;
 
     public CommunityService(
             PostRepository posts,
@@ -29,7 +31,8 @@ public class CommunityService {
             CommentRepository comments,
             CommunityVoteRepository votes,
             CommunityLikeRepository likes,
-            UserRepository users) {
+            UserRepository users,
+            CommunityModeration moderation) {
 
         this.posts = posts;
         this.options = options;
@@ -37,6 +40,7 @@ public class CommunityService {
         this.votes = votes;
         this.likes = likes;
         this.users = users;
+        this.moderation = moderation;
     }
 
     public record OptionView(
@@ -54,30 +58,24 @@ public class CommunityService {
             String authorNickname, boolean mine, Instant createdAt,
             long totalVotes, List<OptionView> options,
             Integer myOptionId, boolean liked, long likeCount,
-            List<CommentView> comments) {
+            long commentCount, List<CommentView> comments) {
     }
 
     public record RankItem(Integer id, String title, long count) {
     }
 
     public record Feed(
-            List<PostView> posts, Integer featuredPostId,
+            List<PostView> posts, RankItem featuredPost,
+            int page, int totalPages,
             List<RankItem> topLiked, List<RankItem> topCommented,
             String latestUpdate, List<String> categories) {
     }
 
     @Transactional(readOnly = true)
-    public Feed feed(String category, String query, Integer userId) {
-        return feed(category, query, userId, "all");
-    }
-
-    @Transactional(readOnly = true)
-    public Feed feed(
-            String category,
-            String query,
-            Integer userId,
-            String scope) {
-
+    public Feed feed(String category, String query, Integer userId, String scope, int page) {
+        if (page < 1 || page > Integer.MAX_VALUE / 20) {
+            throw ApiException.badRequest("올바르지 않은 페이지입니다.");
+        }
         if (!Set.of("all", "mine", "commented", "liked").contains(scope)) {
             throw ApiException.badRequest("올바르지 않은 탭입니다.");
         }
@@ -86,7 +84,7 @@ public class CommunityService {
             LoginUser.requireId();
         }
 
-        String cat = Categories.COMMUNITY.contains(category)
+        String cat = category != null && Categories.COMMUNITY.contains(category)
                 ? category
                 : null;
 
@@ -99,13 +97,34 @@ public class CommunityService {
                 ? null
                 : "%" + escapeLike(q.toLowerCase(Locale.ROOT)) + "%";
 
-        List<Post> found = posts.search(cat, pattern, scope, userId);
+        Page<Post> found = posts.search(cat, pattern, scope, userId, PageRequest.of(page - 1, 20));
+        PageRequest topThree = PageRequest.of(0, 3);
+        RankItem featured = page == 1 && scope.equals("all") && cat != null
+                ? rank(posts.topByEngagement(cat, pattern, scope, userId, PageRequest.of(0, 1)))
+                        .stream().findFirst().orElse(null)
+                : null;
+
+        return new Feed(
+                postViews(found.getContent(), userId, false),
+                featured, page, found.getTotalPages(),
+                rank(posts.topByLikes(topThree)),
+                rank(posts.topByComments(topThree)),
+                latestUpdate(), Categories.COMMUNITY);
+    }
+
+    @Transactional(readOnly = true)
+    public PostView detail(Integer postId, Integer userId) {
+        return postViews(List.of(post(postId)), userId, true).getFirst();
+    }
+
+    private List<PostView> postViews(List<Post> found, Integer userId, boolean includeComments) {
         List<Integer> ids = found.stream().map(Post::getId).toList();
 
         Map<Integer, List<PostOption>> optionsByPost = new HashMap<>();
         Map<Integer, Long> voteCounts = new HashMap<>();
         Map<Integer, Long> likeCounts = new HashMap<>();
         Map<Integer, List<Comment>> commentsByPost = new HashMap<>();
+        Map<Integer, Long> commentCounts = new HashMap<>();
         Map<Integer, Integer> myVotes = new HashMap<>();
         Set<Integer> myLikes = new HashSet<>();
 
@@ -126,10 +145,15 @@ public class CommunityService {
                         (Integer) row[0], ((Number) row[1]).longValue());
             }
 
-            for (Comment comment : comments.findWithAuthorByPostIds(ids)) {
-                commentsByPost.computeIfAbsent(
-                        comment.getPostId(), k -> new ArrayList<>())
-                        .add(comment);
+            if (includeComments) {
+                for (Comment comment : comments.findWithAuthorByPostIds(ids)) {
+                    commentsByPost.computeIfAbsent(comment.getPostId(), key -> new ArrayList<>())
+                            .add(comment);
+                }
+            } else {
+                for (Object[] row : comments.countByPostIds(ids)) {
+                    commentCounts.put((Integer) row[0], ((Number) row[1]).longValue());
+                }
             }
 
             if (userId != null) {
@@ -184,31 +208,11 @@ public class CommunityService {
                     myVotes.get(post.getId()),
                     myLikes.contains(post.getId()),
                     likeCounts.getOrDefault(post.getId(), 0L),
+                    includeComments ? commentViews.size() : commentCounts.getOrDefault(post.getId(), 0L),
                     commentViews));
         }
 
-        Integer featuredId = null;
-
-        if (scope.equals("all") && cat != null && !views.isEmpty()) {
-            PostView featured = views.stream()
-                    .max(Comparator
-                            .comparingLong((PostView v) -> v.likeCount() + v.comments().size())
-                            .thenComparing(PostView::createdAt)
-                            .thenComparing(PostView::id))
-                    .orElseThrow();
-
-            featuredId = featured.id();
-            views.remove(featured);
-            views.add(0, featured);
-        }
-
-        return new Feed(
-                views,
-                featuredId,
-                rank(posts.topByLikes(PageRequest.of(0, 3))),
-                rank(posts.topByComments(PageRequest.of(0, 3))),
-                latestUpdate(),
-                Categories.COMMUNITY);
+        return views;
     }
 
     @Transactional(readOnly = true)
@@ -217,8 +221,10 @@ public class CommunityService {
         return latest == null ? "" : latest.toString();
     }
 
+    public record WriteResult(Integer id, String warning) {}
+
     @Transactional
-    public Integer createPost(
+    public WriteResult createPost(
             Integer userId,
             String rawTitle,
             String rawContent,
@@ -246,18 +252,19 @@ public class CommunityService {
                             + "(제목 200자, 내용 5,000자 이내)");
         }
 
-        Post post = posts.save(
-                new Post(user(userId), title, content, category));
+        User author = user(userId);
+        String warning = moderation.check(Map.of("title", title, "content", content, "options", opts));
+        Post post = posts.save(new Post(author, title, content, category));
 
         for (String name : opts) {
             options.save(new PostOption(post, name));
         }
 
-        return post.getId();
+        return new WriteResult(post.getId(), warning);
     }
 
     @Transactional
-    public void editPost(
+    public String editPost(
             Integer userId,
             Integer postId,
             String rawTitle,
@@ -276,10 +283,12 @@ public class CommunityService {
                     "제목(1~200자), 내용(1~5,000자), 카테고리를 확인해주세요.");
         }
 
+        String warning = moderation.check(Map.of("title", title, "content", content));
         post.setTitle(title);
         post.setContent(content);
         post.setCategory(category);
         post.touch();
+        return warning;
     }
 
     @Transactional
@@ -335,7 +344,7 @@ public class CommunityService {
     }
 
     @Transactional
-    public void addComment(
+    public String addComment(
             Integer userId,
             Integer postId,
             String rawContent) {
@@ -343,12 +352,15 @@ public class CommunityService {
         String content = commentContent(rawContent);
         Post post = post(postId);
 
-        comments.save(new Comment(post, user(userId), content));
+        User author = user(userId);
+        String warning = moderation.check(Map.of("comment", content));
+        comments.save(new Comment(post, author, content));
         post.touch();
+        return warning;
     }
 
     @Transactional
-    public void editComment(
+    public String editComment(
             Integer userId,
             Integer postId,
             Integer commentId,
@@ -357,8 +369,10 @@ public class CommunityService {
         String content = commentContent(rawContent);
         Comment comment = ownComment(userId, postId, commentId);
 
+        String warning = moderation.check(Map.of("comment", content));
         comment.setContent(content);
         comment.getPost().touch();
+        return warning;
     }
 
     @Transactional

@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
@@ -16,8 +17,7 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
     @Query("select p from Post p where p.id = :id")
     Optional<Post> lockById(@Param("id") Integer id);
 
-    @Query("""
-            select p from Post p join fetch p.author
+    String SEARCH = """
             where (:category is null or p.category = :category)
               and (
                   :pattern is null
@@ -46,13 +46,28 @@ public interface PostRepository extends JpaRepository<Post, Integer> {
                       )
                   )
               )
-            order by p.createdAt desc, p.id desc
-            """)
-    List<Post> search(
+            """;
+
+    @Query(value = "select p from Post p join fetch p.author " + SEARCH
+            + "order by p.createdAt desc, p.id desc", countQuery = "select count(p) from Post p " + SEARCH)
+    Page<Post> search(
             @Param("category") String category,
             @Param("pattern") String pattern,
             @Param("scope") String scope,
-            @Param("userId") Integer userId);
+            @Param("userId") Integer userId,
+            Pageable pageable);
+
+    @Query("select p.id, p.title, "
+            + "((select count(l) from CommunityLike l where l.post = p) "
+            + "+ (select count(c) from Comment c where c.post = p)) as engagement "
+            + "from Post p " + SEARCH
+            + "order by engagement desc, p.createdAt desc, p.id desc")
+    List<Object[]> topByEngagement(
+            @Param("category") String category,
+            @Param("pattern") String pattern,
+            @Param("scope") String scope,
+            @Param("userId") Integer userId,
+            Pageable pageable);
 
     @Query("select max(p.updatedAt) from Post p")
     Instant latestUpdate();
