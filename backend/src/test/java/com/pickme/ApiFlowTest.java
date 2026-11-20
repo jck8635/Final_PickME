@@ -279,32 +279,88 @@ class ApiFlowTest {
 
     @Test
     void communityPaginatesWithStableOrderAndFilter() throws Exception {
-        MockHttpSession user = signupAndLogin("pagination@example.com", "페이지");
+        MockHttpSession user = signupAndLogin(
+                "pagination@example.com",
+                "페이지");
+
         jdbc.update("""
-                insert into post (user_id, title, content, category, created_at, updated_at)
-                select id, '페이지 ' || n, '내용', '기타', current_timestamp, current_timestamp
-                from "user" cross join system_range(1, 21) as numbers(n)
-                where email = 'pagination@example.com' order by n
+                insert into post (
+                    user_id,
+                    title,
+                    content,
+                    category,
+                    created_at,
+                    updated_at
+                )
+                select
+                    id,
+                    '페이지 ' || n,
+                    '내용',
+                    '기타',
+                    current_timestamp,
+                    current_timestamp
+                from "user"
+                cross join system_range(1, 21) as numbers(n)
+                where email = 'pagination@example.com'
+                order by n
                 """);
 
-        for (int page = 1; page <= 2; page++) {
-            JsonNode feed = json(mvc.perform(get("/api/community/posts")
-                    .param("category", "기타").param("q", "페이지")
-                    .param("scope", "mine").param("page", String.valueOf(page)).session(user))
-                    .andExpect(status().isOk()).andReturn());
-            assertThat(feed.get("page").asInt()).isEqualTo(page);
-            assertThat(feed.get("totalPages").asInt()).isEqualTo(2);
-            assertThat(feed.get("posts")).hasSize(page == 1 ? 20 : 1);
-            assertThat(feed.get("posts").get(0).get("title").asString())
-                    .isEqualTo(page == 1 ? "페이지 21" : "페이지 1");
+        // 21개 게시글 → 10개, 10개, 1개로 조회
+        for (int page = 1; page <= 3; page++) {
+            JsonNode feed = json(
+                    mvc.perform(
+                            get("/api/community/posts")
+                                    .param("category", "기타")
+                                    .param("q", "페이지")
+                                    .param("scope", "mine")
+                                    .param("page", String.valueOf(page))
+                                    .session(user))
+                            .andExpect(status().isOk())
+                            .andReturn());
+
+            assertThat(feed.get("page").asInt())
+                    .isEqualTo(page);
+
+            assertThat(feed.get("totalPages").asInt())
+                    .isEqualTo(3);
+
+            assertThat(feed.get("posts"))
+                    .hasSize(page < 3 ? 10 : 1);
+
+            assertThat(feed.get("posts")
+                    .get(0)
+                    .get("title")
+                    .asString())
+                    .isEqualTo("페이지 " + (21 - (page - 1) * 10));
         }
 
-        int oldest = jdbc.queryForObject("select min(id) from post", Integer.class);
-        postJson("/api/community/posts/" + oldest + "/like", null, user);
-        JsonNode first = json(mvc.perform(get("/api/community/posts").param("category", "기타")
-                .param("page", "1")).andExpect(status().isOk()).andReturn());
-        assertThat(first.get("featuredPost").get("id").asInt()).isEqualTo(oldest);
-        assertThat(first.get("posts").get(0).get("id").asInt()).isNotEqualTo(oldest);
+        int oldest = jdbc.queryForObject(
+                "select min(id) from post",
+                Integer.class);
+
+        postJson(
+                "/api/community/posts/" + oldest + "/like",
+                null,
+                user);
+
+        JsonNode first = json(
+                mvc.perform(
+                        get("/api/community/posts")
+                                .param("category", "기타")
+                                .param("page", "1"))
+                        .andExpect(status().isOk())
+                        .andReturn());
+
+        assertThat(first.get("featuredPost")
+                .get("id")
+                .asInt())
+                .isEqualTo(oldest);
+
+        assertThat(first.get("posts")
+                .get(0)
+                .get("id")
+                .asInt())
+                .isNotEqualTo(oldest);
     }
 
     @Test

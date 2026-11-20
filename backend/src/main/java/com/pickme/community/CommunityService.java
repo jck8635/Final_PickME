@@ -16,7 +16,7 @@ import com.pickme.member.UserRepository;
 
 @Service
 public class CommunityService {
-
+    private static final int PAGE_SIZE = 10;
     private final PostRepository posts;
     private final PostOptionRepository options;
     private final CommentRepository comments;
@@ -73,7 +73,7 @@ public class CommunityService {
 
     @Transactional(readOnly = true)
     public Feed feed(String category, String query, Integer userId, String scope, int page) {
-        if (page < 1 || page > Integer.MAX_VALUE / 20) {
+        if (page < 1 || page > Integer.MAX_VALUE / PAGE_SIZE) {
             throw ApiException.badRequest("올바르지 않은 페이지입니다.");
         }
         if (!Set.of("all", "mine", "commented", "liked").contains(scope)) {
@@ -97,7 +97,7 @@ public class CommunityService {
                 ? null
                 : "%" + escapeLike(q.toLowerCase(Locale.ROOT)) + "%";
 
-        Page<Post> found = posts.search(cat, pattern, scope, userId, PageRequest.of(page - 1, 20));
+        Page<Post> found = posts.search(cat, pattern, scope, userId, PageRequest.of(page - 1, PAGE_SIZE));
         PageRequest topThree = PageRequest.of(0, 3);
         RankItem featured = page == 1 && scope.equals("all") && cat != null
                 ? rank(posts.topByEngagement(cat, pattern, scope, userId, PageRequest.of(0, 1)))
@@ -221,7 +221,8 @@ public class CommunityService {
         return latest == null ? "" : latest.toString();
     }
 
-    public record WriteResult(Integer id, String warning) {}
+    public record WriteResult(Integer id, String warning) {
+    }
 
     @Transactional
     public WriteResult createPost(
