@@ -11,7 +11,7 @@ import logging
 
 from fastapi import FastAPI
 
-from app.routers import ai, health
+from app.routers import ai, health, embedding
 
 logging.basicConfig(level=logging.INFO)
 
@@ -19,3 +19,6 @@ app = FastAPI(title="PickMe AI Server", version="0.2.0")
 
 app.include_router(health.router)
 app.include_router(ai.router)
+
+# 새로 추가
+app.include_router(embedding.router)

@@ -1,50 +1,51 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router'
-import { History, Info, Scale, Search, Star, X } from 'lucide-react'
-import { api, errorMessage } from '../api/client'
-import type { HistoryItem } from '../api/types'
-import { useAuth, useFlash } from '../lib/app-context'
-import { formatDateTime } from '../lib/format'
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
+import { History, Info, Scale, Search, Star, X } from "lucide-react";
+import { api, errorMessage } from "../api/client";
+import type { HistoryItem } from "../api/types";
+import { useAuth, useFlash } from "../lib/app-context";
+import { formatDateTime } from "../lib/format";
+import SimilarDecisions from "../components/SimilarDecisions";
 
 const CATEGORIES = [
-  '음식/식사',
-  '진로/직업',
-  '소비/쇼핑',
-  '연애/관계',
-  '일상/생활',
-  '학습/자기계발',
-  '여행/여가',
-  '기타',
-]
+  "음식/식사",
+  "진로/직업",
+  "소비/쇼핑",
+  "연애/관계",
+  "일상/생활",
+  "학습/자기계발",
+  "여행/여가",
+  "기타",
+];
 
 const STYLE_NAMES: Record<string, string> = {
-  soft: '부드러운 공감형',
-  objective: '객관적인 분석형',
-  fact: '냉정한 팩트형',
-}
+  soft: "부드러운 공감형",
+  objective: "객관적인 분석형",
+  fact: "냉정한 팩트형",
+};
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = 10;
 
 type Filters = {
-  q: string
-  category: string
-  sort: 'latest' | 'oldest'
-  bookmarked: boolean
-  page: number
-}
+  q: string;
+  category: string;
+  sort: "latest" | "oldest";
+  bookmarked: boolean;
+  page: number;
+};
 
 type HistoryPageResponse = {
-  items: HistoryItem[]
-  page: number
-  size: number
-  totalElements: number
-  totalPages: number
-}
+  items: HistoryItem[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
 
 export default function HistoryPage() {
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading } = useAuth();
 
-  if (authLoading) return null
+  if (authLoading) return null;
 
   if (!user) {
     return (
@@ -70,91 +71,89 @@ export default function HistoryPage() {
           </Link>
         </div>
       </div>
-    )
+    );
   }
 
-  return <HistoryList key={user.id} />
+  return <HistoryList key={user.id} />;
 }
 
 function HistoryList() {
-  const { flash } = useFlash()
+  const { flash } = useFlash();
 
   const [filters, setFilters] = useState<Filters>({
-    q: '',
-    category: '전체',
-    sort: 'latest',
+    q: "",
+    category: "전체",
+    sort: "latest",
     bookmarked: false,
     page: 0,
-  })
+  });
 
-  const [query, setQuery] = useState('')
-  const [data, setData] = useState<HistoryPageResponse | null>(null)
-  const [detail, setDetail] = useState<HistoryItem | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [bookmarkBusy, setBookmarkBusy] = useState(false)
-  const [reloadKey, setReloadKey] = useState(0)
+  const [query, setQuery] = useState("");
+  const [data, setData] = useState<HistoryPageResponse | null>(null);
+  const [detail, setDetail] = useState<HistoryItem | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [bookmarkBusy, setBookmarkBusy] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const requestId = useRef(0)
-  const items = data?.items ?? null
+  const requestId = useRef(0);
+  const items = data?.items ?? null;
 
   const reload = useCallback(() => {
-    setReloadKey((key) => key + 1)
-  }, [])
+    setReloadKey((key) => key + 1);
+  }, []);
 
   useEffect(() => {
-    const id = ++requestId.current
-    const controller = new AbortController()
+    const id = ++requestId.current;
+    const controller = new AbortController();
 
-    setLoading(true)
-    setLoadError(null)
-    setData(null)
+    setLoading(true);
+    setLoadError(null);
+    setData(null);
 
     async function load() {
       try {
-        const res = await api.get<HistoryPageResponse>('/history/page', {
+        const res = await api.get<HistoryPageResponse>("/history/page", {
           params: {
             ...filters,
             size: PAGE_SIZE,
           },
           signal: controller.signal,
-        })
+        });
 
-        if (id !== requestId.current || controller.signal.aborted) return
+        if (id !== requestId.current || controller.signal.aborted) return;
 
         // 삭제나 북마크 해제로 현재 페이지가 사라지면
         // 마지막 유효 페이지로 이동합니다.
-        const lastPage = Math.max(0, res.data.totalPages - 1)
+        const lastPage = Math.max(0, res.data.totalPages - 1);
 
         if (filters.page > lastPage) {
           setFilters((current) => ({
             ...current,
             page: lastPage,
-          }))
-          return
+          }));
+          return;
         }
 
-        setData(res.data)
+        setData(res.data);
       } catch (error) {
-        if (id !== requestId.current || controller.signal.aborted) return
+        if (id !== requestId.current || controller.signal.aborted) return;
 
-        setLoadError(
-          errorMessage(error, '기록을 불러오지 못했어요.'),
-        )
+        setLoadError(errorMessage(error, "기록을 불러오지 못했어요."));
       } finally {
         if (id === requestId.current && !controller.signal.aborted) {
-          setLoading(false)
+          setLoading(false);
         }
       }
     }
 
-    void load()
+    void load();
 
     return () => {
-      controller.abort()
-      requestId.current++
-    }
-  }, [filters, reloadKey])
+      controller.abort();
+      requestId.current++;
+    };
+  }, [filters, reloadKey]);
 
   // 검색어 입력 후 300ms 동안 추가 입력이 없으면 검색합니다.
   // 검색 조건이 바뀌면 첫 페이지부터 조회합니다.
@@ -168,26 +167,26 @@ function HistoryList() {
               q: query.trim(),
               page: 0,
             },
-      )
-    }, 300)
+      );
+    }, 300);
 
-    return () => window.clearTimeout(timer)
-  }, [query])
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
   async function toggleBookmark(item: HistoryItem) {
-    if (bookmarkBusy) return
+    if (bookmarkBusy) return;
 
-    setBookmarkBusy(true)
+    setBookmarkBusy(true);
 
     try {
-      await api.post(`/history/${item.id}/bookmark`)
+      await api.post(`/history/${item.id}/bookmark`);
 
       // 정렬과 전체 건수를 서버 기준으로 다시 반영합니다.
-      reload()
+      reload();
     } catch (error) {
-      flash(errorMessage(error))
+      flash(errorMessage(error));
     } finally {
-      setBookmarkBusy(false)
+      setBookmarkBusy(false);
     }
   }
 
@@ -205,8 +204,8 @@ function HistoryList() {
           </h1>
 
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            이전 고민과 선택지 비교 결과를 검색하고, 실제 선택과 만족도를
-            회고해 보세요.
+            이전 고민과 선택지 비교 결과를 검색하고, 실제 선택과 만족도를 회고해
+            보세요.
           </p>
         </div>
       </div>
@@ -216,10 +215,12 @@ function HistoryList() {
 
         <p className="leading-relaxed">
           <strong>보안 안내:</strong> 분석 기록은 로그인한 본인만 볼 수 있도록
-          서버에 보관됩니다. 기록을 눌러 실제로 어떤 선택을 했는지{' '}
+          서버에 보관됩니다. 기록을 눌러 실제로 어떤 선택을 했는지{" "}
           <strong>회고</strong>를 남겨 보세요.
         </p>
       </div>
+
+      <SimilarDecisions />
 
       <div className="flex flex-col sm:flex-row gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
         <div className="flex-1 relative">
@@ -261,7 +262,7 @@ function HistoryList() {
             onChange={(e) =>
               setFilters((current) => ({
                 ...current,
-                sort: e.target.value as Filters['sort'],
+                sort: e.target.value as Filters["sort"],
                 page: 0,
               }))
             }
@@ -283,14 +284,12 @@ function HistoryList() {
             }
             className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-sm transition-colors focus:outline-none ${
               filters.bookmarked
-                ? 'bg-blue-50 text-blue-600 border-blue-200'
-                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                ? "bg-blue-50 text-blue-600 border-blue-200"
+                : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
             }`}
           >
             <Star
-              className={`w-4 h-4 ${
-                filters.bookmarked ? 'fill-blue-600' : ''
-              }`}
+              className={`w-4 h-4 ${filters.bookmarked ? "fill-blue-600" : ""}`}
             />
             <span className="whitespace-nowrap">즐겨찾기</span>
           </button>
@@ -310,21 +309,14 @@ function HistoryList() {
         >
           <p>{loadError}</p>
 
-          <button
-            type="button"
-            onClick={reload}
-            className="mt-2 underline"
-          >
+          <button type="button" onClick={reload} className="mt-2 underline">
             다시 시도
           </button>
         </div>
       )}
 
       {!loading && !loadError && data && (
-        <p
-          className="text-sm text-slate-500"
-          aria-live="polite"
-        >
+        <p className="text-sm text-slate-500" aria-live="polite">
           총 {data.totalElements}개의 기록
         </p>
       )}
@@ -340,17 +332,17 @@ function HistoryList() {
               onKeyDown={(e) => {
                 if (
                   e.target === e.currentTarget &&
-                  (e.key === 'Enter' || e.key === ' ')
+                  (e.key === "Enter" || e.key === " ")
                 ) {
-                  e.preventDefault()
-                  setDetail(item)
+                  e.preventDefault();
+                  setDetail(item);
                 }
               }}
               className="p-5 bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer relative"
             >
               <div className="flex justify-between items-start mb-2">
                 <span className="px-2 py-1 bg-blue-100 text-blue-700 text-[11px] font-bold rounded-md">
-                  {item.category || '일반'}
+                  {item.category || "일반"}
                 </span>
 
                 <div className="flex items-center gap-3">
@@ -362,22 +354,18 @@ function HistoryList() {
                     type="button"
                     title="즐겨찾기"
                     disabled={bookmarkBusy}
-                    aria-label={
-                      item.bookmarked
-                        ? '즐겨찾기 해제'
-                        : '즐겨찾기'
-                    }
+                    aria-label={item.bookmarked ? "즐겨찾기 해제" : "즐겨찾기"}
                     className="focus:outline-none transition-colors bg-transparent p-0"
                     onClick={(e) => {
-                      e.stopPropagation()
-                      void toggleBookmark(item)
+                      e.stopPropagation();
+                      void toggleBookmark(item);
                     }}
                   >
                     <Star
                       className={`w-5 h-5 ${
                         item.bookmarked
-                          ? 'text-yellow-400 fill-yellow-400'
-                          : 'text-slate-300 hover:text-yellow-400'
+                          ? "text-yellow-400 fill-yellow-400"
+                          : "text-slate-300 hover:text-yellow-400"
                       }`}
                     />
                   </button>
@@ -397,7 +385,7 @@ function HistoryList() {
                   ✔ 실제 선택: {item.actualChoice}
                   {item.satisfactionScore
                     ? ` · 만족도 ${item.satisfactionScore}점`
-                    : ''}
+                    : ""}
                 </p>
               )}
             </div>
@@ -412,16 +400,14 @@ function HistoryList() {
           </div>
 
           <h3 className="text-base font-semibold text-slate-900 mb-1">
-            {filters.q ||
-            filters.category !== '전체' ||
-            filters.bookmarked
-              ? '조건에 맞는 기록이 없습니다'
-              : '아직 작성된 고민 기록이 없습니다'}
+            {filters.q || filters.category !== "전체" || filters.bookmarked
+              ? "조건에 맞는 기록이 없습니다"
+              : "아직 작성된 고민 기록이 없습니다"}
           </h3>
 
           <p className="text-sm text-slate-500 max-w-sm mb-6 leading-relaxed">
-            어떤 결정을 내려야 할지 고민되는 순간이 있다면,
-            선택지 비교를 시작해 보세요!
+            어떤 결정을 내려야 할지 고민되는 순간이 있다면, 선택지 비교를 시작해
+            보세요!
           </p>
 
           <Link
@@ -452,10 +438,7 @@ function HistoryList() {
             이전
           </button>
 
-          <span
-            aria-live="polite"
-            className="text-sm text-slate-600"
-          >
+          <span aria-live="polite" className="text-sm text-slate-600">
             {data.page + 1} / {data.totalPages} 페이지
           </span>
 
@@ -489,15 +472,15 @@ function HistoryList() {
                     ),
                   }
                 : current,
-            )
+            );
 
-            setDetail(null)
-            flash('회고가 저장되었습니다!')
+            setDetail(null);
+            flash("회고가 저장되었습니다!");
           }}
           onDeleted={() => {
-            reload()
-            setDetail(null)
-            flash('기록을 삭제했습니다.')
+            reload();
+            setDetail(null);
+            flash("기록을 삭제했습니다.");
           }}
         />
       )}
@@ -508,9 +491,9 @@ function HistoryList() {
             <span className="text-blue-600 font-bold">🛡️</span>
 
             <span>
-              안내: PickMe AI의 분석 및 추천은 합리적 판단을 돕기 위한{' '}
-              <strong>참고용</strong>이며, 모든 최종 결정권과 책임은
-              사용자 본인에게 있습니다.
+              안내: PickMe AI의 분석 및 추천은 합리적 판단을 돕기 위한{" "}
+              <strong>참고용</strong>이며, 모든 최종 결정권과 책임은 사용자
+              본인에게 있습니다.
             </span>
           </div>
 
@@ -520,48 +503,42 @@ function HistoryList() {
         </div>
       </footer>
     </div>
-  )
+  );
 }
 
 function DetailModal(props: {
-  item: HistoryItem
-  onClose: () => void
-  onSaved: (item: HistoryItem) => void
-  onDeleted: (id: number) => void
+  item: HistoryItem;
+  onClose: () => void;
+  onSaved: (item: HistoryItem) => void;
+  onDeleted: (id: number) => void;
 }) {
-  const { item, onClose } = props
-  const { flash } = useFlash()
+  const { item, onClose } = props;
+  const { flash } = useFlash();
 
-  const [actualChoice, setActualChoice] = useState(
-    item.actualChoice ?? '',
-  )
+  const [actualChoice, setActualChoice] = useState(item.actualChoice ?? "");
 
   const [score, setScore] = useState(
-    item.satisfactionScore
-      ? String(item.satisfactionScore)
-      : '',
-  )
+    item.satisfactionScore ? String(item.satisfactionScore) : "",
+  );
 
-  const [note, setNote] = useState(
-    item.retrospectiveNote ?? '',
-  )
+  const [note, setNote] = useState(item.retrospectiveNote ?? "");
 
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
+      if (e.key === "Escape") onClose();
+    };
 
-    document.addEventListener('keydown', onKey)
+    document.addEventListener("keydown", onKey);
 
     return () => {
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
 
   async function save() {
-    setBusy(true)
+    setBusy(true);
 
     try {
       const res = await api.put<HistoryItem>(
@@ -571,38 +548,38 @@ function DetailModal(props: {
           satisfactionScore: score,
           retrospectiveNote: note.trim(),
         },
-      )
+      );
 
-      props.onSaved(res.data)
+      props.onSaved(res.data);
     } catch (error) {
-      flash(errorMessage(error, '저장에 실패했습니다.'))
-      setBusy(false)
+      flash(errorMessage(error, "저장에 실패했습니다."));
+      setBusy(false);
     }
   }
 
   async function remove() {
-    if (!window.confirm('이 기록을 정말 삭제하시겠습니까?')) {
-      return
+    if (!window.confirm("이 기록을 정말 삭제하시겠습니까?")) {
+      return;
     }
 
-    setBusy(true)
+    setBusy(true);
 
     try {
-      await api.delete(`/history/${item.id}`)
-      props.onDeleted(item.id)
+      await api.delete(`/history/${item.id}`);
+      props.onDeleted(item.id);
     } catch (error) {
-      flash(errorMessage(error, '삭제에 실패했습니다.'))
-      setBusy(false)
+      flash(errorMessage(error, "삭제에 실패했습니다."));
+      setBusy(false);
     }
   }
 
-  const hasResult = Boolean(item.result) || item.options.length > 0
+  const hasResult = Boolean(item.result) || item.options.length > 0;
 
   return (
     <div
       className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
@@ -612,11 +589,8 @@ function DetailModal(props: {
         className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
       >
         <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center rounded-t-2xl z-10">
-          <h2
-            id="modalTitle"
-            className="text-xl font-bold text-slate-900"
-          >
-            {item.title || '제목 없음'}
+          <h2 id="modalTitle" className="text-xl font-bold text-slate-900">
+            {item.title || "제목 없음"}
           </h2>
 
           <button
@@ -632,7 +606,7 @@ function DetailModal(props: {
         <div className="p-6 space-y-5">
           <div className="flex items-center gap-3 text-sm flex-wrap">
             <span className="px-2.5 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded-md">
-              {item.category || '일반'}
+              {item.category || "일반"}
             </span>
 
             <span className="text-slate-400">
@@ -656,10 +630,10 @@ function DetailModal(props: {
             </p>
           </div>
 
-          {(item.criteria && item.criteria !== '지정 없음') ||
+          {(item.criteria && item.criteria !== "지정 없음") ||
           item.conditions ? (
             <div className="text-sm text-slate-600 space-y-1">
-              {item.criteria && item.criteria !== '지정 없음' && (
+              {item.criteria && item.criteria !== "지정 없음" && (
                 <p>
                   <strong>판단 기준:</strong> {item.criteria}
                 </p>
@@ -690,7 +664,7 @@ function DetailModal(props: {
                       {item.options.map((option, index) => (
                         <li key={index}>
                           {option.title}
-                          {option.note ? ` - ${option.note}` : ''}
+                          {option.note ? ` - ${option.note}` : ""}
                         </li>
                       ))}
                     </ul>
@@ -698,9 +672,7 @@ function DetailModal(props: {
                 )}
 
                 {item.result && (
-                  <p className="whitespace-pre-line mt-2">
-                    {item.result}
-                  </p>
+                  <p className="whitespace-pre-line mt-2">{item.result}</p>
                 )}
               </div>
             </div>
@@ -807,5 +779,5 @@ function DetailModal(props: {
         </div>
       </div>
     </div>
-  )
+  );
 }

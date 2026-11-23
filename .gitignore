@@ -43,3 +43,4 @@ coverage/
 
 # 개인 도구 설정
 .claude/
+/batch_embed_test.py

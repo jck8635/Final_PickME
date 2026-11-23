@@ -17,7 +17,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.pickme.common.ApiException;
 
 /**
- * FastAPI(AI 서버) 호출. FastAPI 의 오류 {"detail": "..."} 는 같은 상태코드의 ApiException 으로 바꿉니다.
+ * FastAPI(AI 서버) 호출. FastAPI 의 오류 {"detail": "..."} 는 같은 상태코드의 ApiException 으로
+ * 바꿉니다.
  */
 @Component
 public class AiClient {
@@ -55,6 +56,53 @@ public class AiClient {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ErrorBody(Object detail) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record EmbeddingResponse(
+            String model,
+            int dimension,
+            List<Double> embedding) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record QueryEmbeddingResponse(
+            String model,
+            int dimension,
+            List<Double> embedding) {
+    }
+
+    public QueryEmbeddingResponse createQueryEmbedding(String text) {
+        QueryEmbeddingResponse response = post(
+                "/history/history/query-embedding",
+                Map.of("text", text),
+                QueryEmbeddingResponse.class);
+
+        if (response == null
+                || response.embedding() == null
+                || response.embedding().size() != 768) {
+            throw new IllegalStateException(
+                    "검색용 임베딩 생성에 실패했습니다.");
+        }
+
+        return response;
+    }
+
+    public EmbeddingResponse createEmbedding(String text) {
+        EmbeddingResponse response = post(
+                "/history/embedding",
+                Map.of("text", text),
+                EmbeddingResponse.class);
+
+        if (response.embedding() == null
+                || response.dimension() != 768
+                || response.embedding().size() != 768) {
+            throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "AI 임베딩 차원이 올바르지 않습니다.");
+        }
+
+        return response;
     }
 
     public ChatResult chat(String message, String tone) {
