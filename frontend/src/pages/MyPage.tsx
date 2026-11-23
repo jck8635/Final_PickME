@@ -1,50 +1,55 @@
-import { useState } from 'react'
-import type { FormEvent } from 'react'
-import { Link } from 'react-router'
-import { api, errorMessage } from '../api/client'
-import type { Member } from '../api/types'
-import { useAuth, useFlash } from '../lib/app-context'
+import { useState } from "react";
+import type { FormEvent } from "react";
+import { Link } from "react-router";
+import { api, errorMessage } from "../api/client";
+import type { Member } from "../api/types";
+import { useAuth, useFlash } from "../lib/app-context";
+import UserProfileForm from "../components/UserProfileForm";
 
 /** 기존 templates/member/mypage.html (RequireAuth 안에서만 렌더링) */
 export default function MyPage() {
-  const { user, setUser } = useAuth()
-  const { flash } = useFlash()
-  const [nickname, setNickname] = useState(user?.nickname ?? '')
-  const [currentPassword, setCurrentPassword] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [passwordConfirmation, setPasswordConfirmation] = useState('')
-  const [busy, setBusy] = useState(false)
+  const { user, setUser } = useAuth();
+  const { flash } = useFlash();
+  const [nickname, setNickname] = useState(user?.nickname ?? "");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  if (!user) return null
+  if (!user) return null;
 
   async function saveNickname(e: FormEvent) {
-    e.preventDefault()
-    setBusy(true)
+    e.preventDefault();
+    setBusy(true);
     try {
-      const res = await api.patch<Member>('/members/me/nickname', { nickname })
-      setUser(res.data)
-      setNickname(res.data.nickname)
-      flash('닉네임을 변경했습니다.')
+      const res = await api.patch<Member>("/members/me/nickname", { nickname });
+      setUser(res.data);
+      setNickname(res.data.nickname);
+      flash("닉네임을 변경했습니다.");
     } catch (error) {
-      flash(errorMessage(error))
+      flash(errorMessage(error));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   async function savePassword(e: FormEvent) {
-    e.preventDefault()
-    setBusy(true)
+    e.preventDefault();
+    setBusy(true);
     try {
-      await api.patch('/members/me/password', { currentPassword, newPassword, passwordConfirmation })
-      setCurrentPassword('')
-      setNewPassword('')
-      setPasswordConfirmation('')
-      flash('비밀번호를 변경했습니다.')
+      await api.patch("/members/me/password", {
+        currentPassword,
+        newPassword,
+        passwordConfirmation,
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setPasswordConfirmation("");
+      flash("비밀번호를 변경했습니다.");
     } catch (error) {
-      flash(errorMessage(error))
+      flash(errorMessage(error));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
@@ -104,7 +109,9 @@ export default function MyPage() {
         <section className="pm-card" aria-labelledby="password-title">
           <span className="pm-step">02 / SECURITY</span>
           <h2 id="password-title">비밀번호 변경</h2>
-          <p className="pm-muted">현재 비밀번호를 확인한 후 변경할 수 있어요.</p>
+          <p className="pm-muted">
+            현재 비밀번호를 확인한 후 변경할 수 있어요.
+          </p>
           <form onSubmit={savePassword} className="pm-form" noValidate>
             <label htmlFor="current-password">현재 비밀번호</label>
             <input
@@ -148,6 +155,10 @@ export default function MyPage() {
           </form>
         </section>
       </div>
+
+      <div style={{ marginTop: "24px" }}>
+        <UserProfileForm />
+      </div>
     </div>
-  )
+  );
 }
