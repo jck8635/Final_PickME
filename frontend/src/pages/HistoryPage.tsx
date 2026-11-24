@@ -6,6 +6,7 @@ import type { HistoryItem } from "../api/types";
 import { useAuth, useFlash } from "../lib/app-context";
 import { formatDateTime } from "../lib/format";
 import SimilarDecisions from "../components/SimilarDecisions";
+import EmbeddingSync from "../components/EmbeddingSync";
 
 const CATEGORIES = [
   "음식/식사",
@@ -89,6 +90,23 @@ function HistoryList() {
   });
 
   const [query, setQuery] = useState("");
+  const [mode, setMode] = useState<"keyword" | "semantic">("keyword");
+  const [similarRequest, setSimilarRequest] = useState<{
+    text: string;
+    id: number;
+  } | null>(null);
+  const similarId = useRef(0);
+
+  function changeMode(next: "keyword" | "semantic") {
+    if (next === mode) return;
+    setMode(next);
+    setSimilarRequest(null);
+    if (next === "keyword") {
+      const value = query.slice(0, 100);
+      setQuery(value);
+      setFilters((current) => ({ ...current, q: value.trim(), page: 0 }));
+    }
+  }
   const [data, setData] = useState<HistoryPageResponse | null>(null);
   const [detail, setDetail] = useState<HistoryItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -104,6 +122,7 @@ function HistoryList() {
   }, []);
 
   useEffect(() => {
+    if (mode !== "keyword") return;
     const id = ++requestId.current;
     const controller = new AbortController();
 
@@ -153,11 +172,12 @@ function HistoryList() {
       controller.abort();
       requestId.current++;
     };
-  }, [filters, reloadKey]);
+  }, [filters, reloadKey, mode]);
 
   // 검색어 입력 후 300ms 동안 추가 입력이 없으면 검색합니다.
   // 검색 조건이 바뀌면 첫 페이지부터 조회합니다.
   useEffect(() => {
+    if (mode !== "keyword") return;
     const timer = window.setTimeout(() => {
       setFilters((current) =>
         current.q === query.trim()
@@ -171,7 +191,7 @@ function HistoryList() {
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [query]);
+  }, [query, mode]);
 
   async function toggleBookmark(item: HistoryItem) {
     if (bookmarkBusy) return;
@@ -200,12 +220,11 @@ function HistoryList() {
           </div>
 
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            고민 분석 기록
+            나의 고민 기록
           </h1>
 
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            이전 고민과 선택지 비교 결과를 검색하고, 실제 선택과 만족도를 회고해
-            보세요.
+            지금까지의 고민과 선택을 돌아보세요.
           </p>
         </div>
       </div>
@@ -220,242 +239,321 @@ function HistoryList() {
         </p>
       </div>
 
-      <SimilarDecisions />
-
-      <div className="flex flex-col sm:flex-row gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex-1 relative">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="고민 제목이나 내용 검색..."
-            maxLength={100}
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
-          />
-        </div>
-
-        <div className="flex gap-2 flex-wrap">
-          <select
-            value={filters.category}
-            onChange={(e) =>
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (mode === "keyword") {
               setFilters((current) => ({
                 ...current,
-                category: e.target.value,
+                q: query.trim(),
                 page: 0,
-              }))
+              }));
+            } else if (query.trim()) {
+              setSimilarRequest({
+                text: query.trim(),
+                id: ++similarId.current,
+              });
             }
-            className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-          >
-            <option value="전체">전체 카테고리</option>
-
-            {CATEGORIES.map((category) => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={filters.sort}
-            onChange={(e) =>
-              setFilters((current) => ({
-                ...current,
-                sort: e.target.value as Filters["sort"],
-                page: 0,
-              }))
-            }
-            className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-          >
-            <option value="latest">즐겨찾기 우선 · 최신순</option>
-            <option value="oldest">오래된순</option>
-          </select>
-
-          <button
-            type="button"
-            aria-pressed={filters.bookmarked}
-            onClick={() =>
-              setFilters((current) => ({
-                ...current,
-                bookmarked: !current.bookmarked,
-                page: 0,
-              }))
-            }
-            className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-sm transition-colors focus:outline-none ${
-              filters.bookmarked
-                ? "bg-blue-50 text-blue-600 border-blue-200"
-                : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
-            }`}
-          >
-            <Star
-              className={`w-4 h-4 ${filters.bookmarked ? "fill-blue-600" : ""}`}
-            />
-            <span className="whitespace-nowrap">즐겨찾기</span>
-          </button>
-        </div>
-      </div>
-
-      {loading && (
-        <p role="status" className="text-sm text-slate-500">
-          기록을 불러오는 중입니다...
-        </p>
-      )}
-
-      {loadError && (
-        <div
-          role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+          }}
         >
-          <p>{loadError}</p>
-
-          <button type="button" onClick={reload} className="mt-2 underline">
-            다시 시도
-          </button>
-        </div>
-      )}
-
-      {!loading && !loadError && data && (
-        <p className="text-sm text-slate-500" aria-live="polite">
-          총 {data.totalElements}개의 기록
-        </p>
-      )}
-
-      {!loading && !loadError && items && items.length > 0 && (
-        <div className="space-y-4">
-          {items.map((item) => (
-            <div
-              key={item.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => setDetail(item)}
-              onKeyDown={(e) => {
-                if (
-                  e.target === e.currentTarget &&
-                  (e.key === "Enter" || e.key === " ")
-                ) {
-                  e.preventDefault();
-                  setDetail(item);
-                }
-              }}
-              className="p-5 bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer relative"
-            >
-              <div className="flex justify-between items-start mb-2">
-                <span className="px-2 py-1 bg-blue-100 text-blue-700 text-[11px] font-bold rounded-md">
-                  {item.category || "일반"}
-                </span>
-
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-slate-400">
-                    {formatDateTime(item.createdAt)}
-                  </span>
-
-                  <button
-                    type="button"
-                    title="즐겨찾기"
-                    disabled={bookmarkBusy}
-                    aria-label={item.bookmarked ? "즐겨찾기 해제" : "즐겨찾기"}
-                    className="focus:outline-none transition-colors bg-transparent p-0"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void toggleBookmark(item);
-                    }}
-                  >
-                    <Star
-                      className={`w-5 h-5 ${
-                        item.bookmarked
-                          ? "text-yellow-400 fill-yellow-400"
-                          : "text-slate-300 hover:text-yellow-400"
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-
-              <h2 className="text-lg font-bold text-slate-900 mb-1 line-clamp-1">
-                {item.title}
-              </h2>
-
-              <p className="text-sm text-slate-500 line-clamp-2">
-                {item.dilemma}
-              </p>
-
-              {item.actualChoice && (
-                <p className="text-xs text-emerald-700 mt-2">
-                  ✔ 실제 선택: {item.actualChoice}
-                  {item.satisfactionScore
-                    ? ` · 만족도 ${item.satisfactionScore}점`
-                    : ""}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {!loading && !loadError && items && items.length === 0 && (
-        <div className="flex flex-col items-center justify-center p-12 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
-          <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-4">
-            <Scale className="w-6 h-6" />
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="고민 검색어"
+              placeholder={
+                mode === "keyword"
+                  ? "고민 제목이나 내용 검색..."
+                  : "의미가 비슷한 고민을 찾아보세요..."
+              }
+              maxLength={mode === "keyword" ? 100 : 5000}
+              className="w-full px-4 py-2 bg-white border border-slate-300 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+            />
           </div>
 
-          <h3 className="text-base font-semibold text-slate-900 mb-1">
-            {filters.q || filters.category !== "전체" || filters.bookmarked
-              ? "조건에 맞는 기록이 없습니다"
-              : "아직 작성된 고민 기록이 없습니다"}
-          </h3>
-
-          <p className="text-sm text-slate-500 max-w-sm mb-6 leading-relaxed">
-            어떤 결정을 내려야 할지 고민되는 순간이 있다면, 선택지 비교를 시작해
-            보세요!
-          </p>
-
-          <Link
-            to="/decision"
-            className="inline-flex items-center justify-center font-medium rounded-lg transition-all duration-150 whitespace-nowrap text-sm px-4 py-2 gap-2 h-10 bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 shadow-sm"
+          <button
+            type="submit"
+            disabled={mode === "semantic" && !query.trim()}
+            aria-label="검색"
+            title="검색"
+            className="rounded-lg bg-slate-100 p-2.5 text-slate-900 hover:bg-slate-200 disabled:opacity-50"
           >
-            새로운 고민 시작하기
-          </Link>
+            <Search className="w-5 h-5" />
+          </button>
+        </form>
+        <div className="flex gap-2" role="group" aria-label="검색 방식">
+          {(["keyword", "semantic"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={mode === value}
+              onClick={() => changeMode(value)}
+              className={`rounded-full px-4 py-2 text-sm transition-colors ${mode === value ? "bg-slate-100 text-slate-900 font-medium" : "bg-transparent text-slate-500 hover:bg-slate-50"}`}
+            >
+              {value === "keyword" ? "일반 검색" : "AI 유사 검색"}
+            </button>
+          ))}
         </div>
+        <p className="text-xs text-slate-500">
+          {mode === "keyword"
+            ? "입력한 키워드가 포함된 고민 기록을 검색합니다."
+            : "의미가 비슷한 과거 고민을 최대 3개 찾습니다."}
+        </p>
+        {mode === "keyword" && (
+          <div className="flex gap-2 flex-wrap">
+            <select
+              value={filters.category}
+              onChange={(e) =>
+                setFilters((current) => ({
+                  ...current,
+                  category: e.target.value,
+                  page: 0,
+                }))
+              }
+              className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+            >
+              <option value="전체">전체 카테고리</option>
+
+              {CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={filters.sort}
+              onChange={(e) =>
+                setFilters((current) => ({
+                  ...current,
+                  sort: e.target.value as Filters["sort"],
+                  page: 0,
+                }))
+              }
+              className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+            >
+              <option value="latest">즐겨찾기 우선 · 최신순</option>
+              <option value="oldest">오래된순</option>
+            </select>
+
+            <button
+              type="button"
+              aria-pressed={filters.bookmarked}
+              onClick={() =>
+                setFilters((current) => ({
+                  ...current,
+                  bookmarked: !current.bookmarked,
+                  page: 0,
+                }))
+              }
+              className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-sm transition-colors focus:outline-none ${
+                filters.bookmarked
+                  ? "bg-blue-50 text-blue-600 border-blue-200"
+                  : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+              }`}
+            >
+              <Star
+                className={`w-4 h-4 ${filters.bookmarked ? "fill-blue-600" : ""}`}
+              />
+              <span className="whitespace-nowrap">즐겨찾기</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {mode === "semantic" && (
+        <>
+          <EmbeddingSync />
+
+          {similarRequest ? (
+            <SimilarDecisions
+              key={similarRequest.id}
+              text={similarRequest.text}
+            />
+          ) : (
+            <p className="text-sm text-slate-500">
+              검색어를 입력하고 검색 버튼을 눌러주세요.
+            </p>
+          )}
+        </>
       )}
+      {mode === "keyword" && (
+        <>
+          {loading && (
+            <p role="status" className="text-sm text-slate-500">
+              기록을 불러오는 중입니다...
+            </p>
+          )}
 
-      {!loading && !loadError && data && data.totalPages > 0 && (
-        <nav
-          aria-label="고민 기록 페이지"
-          className="flex items-center justify-center gap-4"
-        >
-          <button
-            type="button"
-            disabled={data.page === 0}
-            onClick={() =>
-              setFilters((current) => ({
-                ...current,
-                page: Math.max(0, current.page - 1),
-              }))
-            }
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-40"
-          >
-            이전
-          </button>
+          {loadError && (
+            <div
+              role="alert"
+              className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+            >
+              <p>{loadError}</p>
 
-          <span aria-live="polite" className="text-sm text-slate-600">
-            {data.page + 1} / {data.totalPages} 페이지
-          </span>
+              <button type="button" onClick={reload} className="mt-2 underline">
+                다시 시도
+              </button>
+            </div>
+          )}
 
-          <button
-            type="button"
-            disabled={data.page + 1 >= data.totalPages}
-            onClick={() =>
-              setFilters((current) => ({
-                ...current,
-                page: current.page + 1,
-              }))
-            }
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-40"
-          >
-            다음
-          </button>
-        </nav>
+          {!loading && !loadError && data && (
+            <div
+              className="flex items-center justify-between border-t border-slate-200 pt-4"
+              aria-live="polite"
+            >
+              <h2 className="text-sm font-semibold text-slate-900">
+                검색 결과
+              </h2>
+              <span className="text-sm text-slate-500">
+                {data.totalElements}개
+              </span>
+            </div>
+          )}
+
+          {!loading && !loadError && items && items.length > 0 && (
+            <div className="space-y-4">
+              {items.map((item) => (
+                <div
+                  key={item.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setDetail(item)}
+                  onKeyDown={(e) => {
+                    if (
+                      e.target === e.currentTarget &&
+                      (e.key === "Enter" || e.key === " ")
+                    ) {
+                      e.preventDefault();
+                      setDetail(item);
+                    }
+                  }}
+                  className="p-5 bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer relative"
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="px-2 py-1 bg-blue-100 text-blue-700 text-[11px] font-bold rounded-md">
+                      {item.category || "일반"}
+                    </span>
+
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400">
+                        {formatDateTime(item.createdAt)}
+                      </span>
+
+                      <button
+                        type="button"
+                        title="즐겨찾기"
+                        disabled={bookmarkBusy}
+                        aria-label={
+                          item.bookmarked ? "즐겨찾기 해제" : "즐겨찾기"
+                        }
+                        className="focus:outline-none transition-colors bg-transparent p-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void toggleBookmark(item);
+                        }}
+                      >
+                        <Star
+                          className={`w-5 h-5 ${
+                            item.bookmarked
+                              ? "text-yellow-400 fill-yellow-400"
+                              : "text-slate-300 hover:text-yellow-400"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  <h2 className="text-lg font-bold text-slate-900 mb-1 line-clamp-1">
+                    {item.title}
+                  </h2>
+
+                  <p className="text-sm text-slate-500 line-clamp-2">
+                    {item.dilemma}
+                  </p>
+
+                  {item.actualChoice && (
+                    <p className="text-xs text-emerald-700 mt-2">
+                      ✔ 실제 선택: {item.actualChoice}
+                      {item.satisfactionScore
+                        ? ` · 만족도 ${item.satisfactionScore}점`
+                        : ""}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!loading && !loadError && items && items.length === 0 && (
+            <div className="flex flex-col items-center justify-center p-12 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+              <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-4">
+                <Scale className="w-6 h-6" />
+              </div>
+
+              <h3 className="text-base font-semibold text-slate-900 mb-1">
+                {filters.q || filters.category !== "전체" || filters.bookmarked
+                  ? "조건에 맞는 기록이 없습니다"
+                  : "아직 작성된 고민 기록이 없습니다"}
+              </h3>
+
+              <p className="text-sm text-slate-500 max-w-sm mb-6 leading-relaxed">
+                어떤 결정을 내려야 할지 고민되는 순간이 있다면, 선택지 비교를
+                시작해 보세요!
+              </p>
+
+              <Link
+                to="/decision"
+                className="inline-flex items-center justify-center font-medium rounded-lg transition-all duration-150 whitespace-nowrap text-sm px-4 py-2 gap-2 h-10 bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 shadow-sm"
+              >
+                새로운 고민 시작하기
+              </Link>
+            </div>
+          )}
+
+          {!loading && !loadError && data && data.totalPages > 0 && (
+            <nav
+              aria-label="고민 기록 페이지"
+              className="flex items-center justify-center gap-4"
+            >
+              <button
+                type="button"
+                disabled={data.page === 0}
+                onClick={() =>
+                  setFilters((current) => ({
+                    ...current,
+                    page: Math.max(0, current.page - 1),
+                  }))
+                }
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-40"
+              >
+                이전
+              </button>
+
+              <span aria-live="polite" className="text-sm text-slate-600">
+                {data.page + 1} / {data.totalPages} 페이지
+              </span>
+
+              <button
+                type="button"
+                disabled={data.page + 1 >= data.totalPages}
+                onClick={() =>
+                  setFilters((current) => ({
+                    ...current,
+                    page: current.page + 1,
+                  }))
+                }
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-40"
+              >
+                다음
+              </button>
+            </nav>
+          )}
+        </>
       )}
 
       {detail && (

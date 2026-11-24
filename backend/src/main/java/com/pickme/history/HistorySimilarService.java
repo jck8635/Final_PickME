@@ -9,6 +9,8 @@ import java.util.List;
 @Service
 public class HistorySimilarService {
 
+    private static final double MIN_SIMILARITY = 0.65;
+
     private final AiClient aiClient;
     private final JdbcTemplate jdbcTemplate;
 
@@ -67,6 +69,7 @@ public class HistorySimilarService {
                    AND d.user_id = de.user_id
                 WHERE de.user_id = ?
                   AND de.embedding IS NOT NULL
+                  AND (1 - (de.embedding <=> ?::extensions.vector)) >= ?
                 ORDER BY de.embedding <=> ?::extensions.vector
                 LIMIT 3
                 """;
@@ -81,6 +84,8 @@ public class HistorySimilarService {
                         rs.getDouble("similarity")),
                 vector,
                 userId,
+                vector,
+                MIN_SIMILARITY,
                 vector);
 
         return new SimilarResponse(results);

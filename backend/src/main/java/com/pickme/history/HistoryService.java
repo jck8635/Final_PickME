@@ -11,6 +11,10 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.pickme.common.ApiException;
 import com.pickme.common.Categories;
@@ -22,14 +26,20 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class HistoryService {
 
+    private static final Logger log = LoggerFactory.getLogger(HistoryService.class);
+
     private final DecisionRepository decisions;
     private final ObjectMapper objectMapper;
+    private final HistoryEmbeddingService historyEmbeddingService;
 
     public HistoryService(
             DecisionRepository decisions,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            HistoryEmbeddingService historyEmbeddingService) {
+
         this.decisions = decisions;
         this.objectMapper = objectMapper;
+        this.historyEmbeddingService = historyEmbeddingService;
     }
 
     public record OptionView(String title, String note) {
@@ -76,8 +86,8 @@ public class HistoryService {
         String cat = category == null
                 || category.isBlank()
                 || Categories.ALL.equals(category)
-                ? null
-                : category;
+                        ? null
+                        : category;
 
         String q = query == null ? "" : query.strip();
 
@@ -86,11 +96,11 @@ public class HistoryService {
                 : "%" + escapeLike(q.toLowerCase(Locale.ROOT)) + "%";
 
         return decisions.search(
-                        userId,
-                        cat,
-                        bookmarkedOnly,
-                        pattern,
-                        historySort(sortBy))
+                userId,
+                cat,
+                bookmarkedOnly,
+                pattern,
+                historySort(sortBy))
                 .stream()
                 .map(this::toItem)
                 .toList();
@@ -121,8 +131,8 @@ public class HistoryService {
         String cat = category == null
                 || category.isBlank()
                 || Categories.ALL.equals(category)
-                ? null
-                : category;
+                        ? null
+                        : category;
 
         String q = query == null ? "" : query.strip();
 
@@ -180,9 +190,31 @@ public class HistoryService {
         Integer satisfaction = parseScore(score);
 
         Decision d = find(id, userId);
+
         d.setActualChoice(blankToNull(actualChoice));
         d.setSatisfactionScore(satisfaction);
         d.setRetrospectiveNote(blankToNull(note));
+
+        // 회고 저장이 정상적으로 완료된 후 임베딩 갱신
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+
+                    @Override
+                    public void afterCommit() {
+                        try {
+                            historyEmbeddingService.generate(id, userId);
+
+                            log.info(
+                                    "회고 임베딩 갱신 완료: decisionId={}, userId={}",
+                                    id, userId);
+
+                        } catch (Exception e) {
+                            log.warn(
+                                    "회고 임베딩 갱신 실패: decisionId={}, userId={}",
+                                    id, userId, e);
+                        }
+                    }
+                });
 
         return toItem(d);
     }

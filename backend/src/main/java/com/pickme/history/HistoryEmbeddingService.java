@@ -9,6 +9,8 @@ import java.util.List;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import com.pickme.ai.AiClient;
 import com.pickme.common.ApiException;
@@ -37,6 +39,7 @@ public class HistoryEmbeddingService {
             String status) {
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public EmbeddingResult generate(
             Integer decisionId,
             Integer userId) {
@@ -103,14 +106,42 @@ public class HistoryEmbeddingService {
                 ? ""
                 : decision.getQuestion().strip();
 
-        String text = "제목: " + title
-                + "\n고민: " + question;
+        String actualChoice = decision.getActualChoice() == null
+                ? ""
+                : decision.getActualChoice().strip();
 
-        if (text.length() > 10000) {
-            text = text.substring(0, 10000);
+        String retrospectiveNote = decision.getRetrospectiveNote() == null
+                ? ""
+                : decision.getRetrospectiveNote().strip();
+
+        Integer satisfactionScore = decision.getSatisfactionScore();
+
+        StringBuilder text = new StringBuilder();
+
+        text.append("제목: ").append(title);
+        text.append("\n고민: ").append(question);
+
+        if (!actualChoice.isBlank()) {
+            text.append("\n실제 선택: ").append(actualChoice);
         }
 
-        return text;
+        if (satisfactionScore != null) {
+            text.append("\n만족도: ")
+                    .append(satisfactionScore)
+                    .append("/5");
+        }
+
+        if (!retrospectiveNote.isBlank()) {
+            text.append("\n회고: ").append(retrospectiveNote);
+        }
+
+        String result = text.toString();
+
+        if (result.length() > 10000) {
+            result = result.substring(0, 10000);
+        }
+
+        return result;
     }
 
     private static String toVector(List<Double> values) {

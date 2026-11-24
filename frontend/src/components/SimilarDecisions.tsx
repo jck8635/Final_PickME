@@ -1,6 +1,4 @@
-import { useRef, useState } from "react";
-import { Link } from "react-router";
-import { Search, LoaderCircle } from "lucide-react";
+import { useEffect, useState } from "react";
 import { api, errorMessage } from "../api/client";
 
 type SimilarDecision = {
@@ -13,78 +11,45 @@ type SimilarDecision = {
 
 type SimilarResponse = { results: SimilarDecision[] };
 
-export default function SimilarDecisions() {
-  const [text, setText] = useState("");
+export default function SimilarDecisions({ text }: { text: string }) {
   const [results, setResults] = useState<SimilarDecision[] | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const inFlight = useRef(false);
 
-  async function search(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const value = text.trim();
-    if (!value || inFlight.current) return;
-    inFlight.current = true;
-    setBusy(true);
-    setError(null);
-    setResults(null);
-    try {
-      const response = await api.post<SimilarResponse>("/history/similar", {
-        text: value,
-      });
-      setResults(response.data.results);
-    } catch (e) {
-      setError(errorMessage(e, "유사 결정 검색에 실패했습니다."));
-    } finally {
-      inFlight.current = false;
-      setBusy(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    async function search() {
+      try {
+        const response = await api.post<SimilarResponse>(
+          "/history/similar",
+          { text },
+          { signal: controller.signal },
+        );
+        if (!controller.signal.aborted) setResults(response.data.results);
+      } catch (e) {
+        if (!controller.signal.aborted)
+          setError(errorMessage(e, "유사 결정 검색에 실패했습니다."));
+      } finally {
+        if (!controller.signal.aborted) setBusy(false);
+      }
     }
-  }
+    void search();
+    return () => controller.abort();
+  }, [text]);
 
   return (
     <section
       aria-labelledby="similar-heading"
       className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm space-y-4"
     >
-      <div>
-        <h2 id="similar-heading" className="text-lg font-bold text-slate-900">
-          AI 과거 유사 결정 찾기
-        </h2>
-        <p className="mt-1 text-sm text-slate-500">
-          새 고민을 입력하면 내 과거 기록에서 의미가 비슷한 결정을 찾아요.
+      <h2 id="similar-heading" className="sr-only">
+        AI 유사 검색 결과
+      </h2>
+      {busy && (
+        <p role="status" className="text-sm text-slate-500">
+          검색 중...
         </p>
-      </div>
-      <form
-        onSubmit={(e) => {
-          void search(e);
-        }}
-        className="space-y-3"
-      >
-        <label htmlFor="similar-query" className="sr-only">
-          새로운 고민
-        </label>
-        <textarea
-          id="similar-query"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          maxLength={5000}
-          rows={3}
-          placeholder="예: Java 백엔드와 Python AI 개발 중 무엇을 더 공부할까?"
-          className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <button
-          type="submit"
-          disabled={busy || !text.trim()}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {busy ? (
-            <LoaderCircle className="h-4 w-4 animate-spin" />
-          ) : (
-            <Search className="h-4 w-4" />
-          )}
-          {busy ? "검색 중..." : "유사 결정 찾기"}
-        </button>
-      </form>
+      )}
       {error && (
         <p role="alert" className="text-sm text-red-700">
           {error}
@@ -92,12 +57,13 @@ export default function SimilarDecisions() {
       )}
       {results && (
         <div aria-live="polite" className="space-y-3">
-          <h3 className="text-sm font-semibold text-slate-700">
-            검색 결과 {results.length}개
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">검색 결과</h3>
+            <span className="text-sm text-slate-500">{results.length}개</span>
+          </div>
           {results.length === 0 && (
             <p className="text-sm text-slate-500">
-              임베딩된 과거 결정 기록이 없습니다.
+              유사한 과거 고민 기록이 없습니다.
             </p>
           )}
           {results.map((item) => (
@@ -119,9 +85,6 @@ export default function SimilarDecisions() {
                 <strong>회고:</strong>{" "}
                 {item.retrospectiveNote || "아직 작성하지 않음"}
               </p>
-              <Link to="/history" className="text-xs text-blue-700">
-                고민 기록 목록에서 확인
-              </Link>
             </article>
           ))}
           <p className="text-xs text-slate-500">

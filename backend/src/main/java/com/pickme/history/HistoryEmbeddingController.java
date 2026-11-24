@@ -13,10 +13,14 @@ import com.pickme.member.LoginUser;
 public class HistoryEmbeddingController {
 
     private final HistoryEmbeddingService embeddingService;
+    private final HistoryEmbeddingBatchService batchService;
 
     public HistoryEmbeddingController(
-            HistoryEmbeddingService embeddingService) {
+            HistoryEmbeddingService embeddingService,
+            HistoryEmbeddingBatchService batchService) {
+
         this.embeddingService = embeddingService;
+        this.batchService = batchService;
     }
 
     @PostMapping("/{id}/embedding")
@@ -26,5 +30,13 @@ public class HistoryEmbeddingController {
         return embeddingService.generate(
                 id,
                 LoginUser.requireId());
+    }
+
+    @PostMapping("/embedding/batch")
+    public HistoryEmbeddingBatchService.BatchResult generateBatch() {
+
+        Integer userId = LoginUser.requireId();
+
+        return batchService.generateMissing(userId);
     }
 }
