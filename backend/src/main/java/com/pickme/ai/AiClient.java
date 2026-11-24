@@ -113,6 +113,18 @@ public class AiClient {
         return post("/decision/consult", request, DecisionResult.class).result();
     }
 
+    public record HistoryRank(Integer decisionId, int score) {}
+    public record HistoryRanking(List<HistoryRank> ranking) {}
+    public record HistorySummary(String summary) {}
+
+    public HistoryRanking rankHistory(String text, List<?> candidates) {
+        return post("/history/rag/rank", Map.of("text", text, "candidates", candidates), HistoryRanking.class);
+    }
+
+    public HistorySummary summarizeHistory(String text, List<?> candidates) {
+        return post("/history/rag/summary", Map.of("text", text, "candidates", candidates), HistorySummary.class);
+    }
+
     private <T> T post(String uri, Object body, Class<T> type) {
         try {
             T result = aiRestClient.post()

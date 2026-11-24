@@ -172,6 +172,11 @@ public class HistoryService {
                         Sort.Order.desc("id"));
     }
 
+    @Transactional(readOnly = true)
+    public HistoryItem detail(Integer id, Integer userId) {
+        return toItem(find(id, userId));
+    }
+
     @Transactional
     public boolean toggleBookmark(Integer id, Integer userId) {
         Decision d = find(id, userId);

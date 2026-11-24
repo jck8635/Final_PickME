@@ -7,6 +7,7 @@ import { useAuth, useFlash } from "../lib/app-context";
 import { formatDateTime } from "../lib/format";
 import SimilarDecisions from "../components/SimilarDecisions";
 import EmbeddingSync from "../components/EmbeddingSync";
+import HistoryStats from "../components/HistoryStats";
 
 const CATEGORIES = [
   "음식/식사",
@@ -113,6 +114,8 @@ function HistoryList() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [statsKey, setStatsKey] = useState(0);
+  const [showStats, setShowStats] = useState(false);
 
   const requestId = useRef(0);
   const items = data?.items ?? null;
@@ -193,6 +196,27 @@ function HistoryList() {
     return () => window.clearTimeout(timer);
   }, [query, mode]);
 
+  const detailBusy = useRef(false);
+
+  async function openSimilarDetail(id: number) {
+    if (detailBusy.current) return;
+    detailBusy.current = true;
+    try {
+      const res = await api.get<HistoryItem>(`/history/${id}`);
+      setDetail(res.data);
+    } catch (error) {
+      flash(errorMessage(error, "기록을 불러오지 못했어요."));
+    } finally {
+      detailBusy.current = false;
+    }
+  }
+
+  function refreshSimilar() {
+    if (mode === "semantic" && similarRequest) {
+      setSimilarRequest({ text: similarRequest.text, id: ++similarId.current });
+    }
+  }
+
   async function toggleBookmark(item: HistoryItem) {
     if (bookmarkBusy) return;
 
@@ -228,6 +252,16 @@ function HistoryList() {
           </p>
         </div>
       </div>
+
+      <button
+        type="button"
+        aria-expanded={showStats}
+        onClick={() => setShowStats((v) => !v)}
+        className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      >
+        {showStats ? "고민 통계 접기" : "나의 고민 통계 보기"}
+      </button>
+      {showStats && <HistoryStats refreshKey={statsKey} />}
 
       <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 flex items-start gap-2.5 text-xs text-slate-600">
         <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
@@ -372,6 +406,7 @@ function HistoryList() {
             <SimilarDecisions
               key={similarRequest.id}
               text={similarRequest.text}
+              onSelect={(id) => void openSimilarDetail(id)}
             />
           ) : (
             <p className="text-sm text-slate-500">
@@ -573,11 +608,15 @@ function HistoryList() {
             );
 
             setDetail(null);
+            refreshSimilar();
+            setStatsKey((key) => key + 1);
             flash("회고가 저장되었습니다!");
           }}
           onDeleted={() => {
             reload();
             setDetail(null);
+            refreshSimilar();
+            setStatsKey((key) => key + 1);
             flash("기록을 삭제했습니다.");
           }}
         />

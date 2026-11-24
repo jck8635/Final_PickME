@@ -78,6 +78,11 @@ public class HistoryController {
                 size);
     }
 
+    @GetMapping("/{id}")
+    public HistoryService.HistoryItem detail(@PathVariable("id") Integer id) {
+        return historyService.detail(id, LoginUser.requireId());
+    }
+
     @PostMapping("/{id}/bookmark")
     public Map<String, Boolean> toggleBookmark(
             @PathVariable("id") Integer id) {
