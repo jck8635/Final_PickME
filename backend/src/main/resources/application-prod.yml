@@ -24,3 +24,11 @@ spring:
 logging:
   level:
     org.hibernate.SQL: WARN
+
+# 기존 Supabase 상담 테이블 사용
+pickme:
+  agent:
+    enabled: true
+  conversation:
+    enabled: true
+    retention-days: 30

@@ -99,6 +99,8 @@ export default function DecisionPage() {
     : "decision_temp_data_guest";
   const [params] = useSearchParams();
   const prefill = useMemo(() => readPrefill(params), [params]);
+  const prefillKey = `${storageKey}_last_chat_transfer`;
+  const transferSignature = JSON.stringify(prefill);
   const [categories, setCategories] = useState<string[]>(prefill.categories);
   const [style, setStyle] = useState<DecisionStyle>("objective");
   const [title, setTitle] = useState(prefill.title);
@@ -126,13 +128,25 @@ export default function DecisionPage() {
   const [questions, setQuestions] = useState<string[]>([]);
   const [asking, setAsking] = useState(false);
   const resultRef = useRef<HTMLDivElement>(null);
+  const sessionId = useRef(crypto.randomUUID());
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadedStorageKey, setLoadedStorageKey] = useState("");
+
+  useEffect(() => {
+    sessionId.current = crypto.randomUUID();
+    setResult(null); setQuestions([]); setSaved(false);
+  }, [user?.id, prefill, prefillKey, transferSignature]);
 
   // 로컬스토리지
   useEffect(() => {
     const savedTemp = localStorage.getItem(storageKey);
-    if (savedTemp) {
+    if (prefill.fromChat && localStorage.getItem(prefillKey) !== transferSignature) {
+      localStorage.setItem(prefillKey, transferSignature);
+      setTitle(prefill.title); setContent(prefill.content); setCategories(prefill.categories);
+      const opts = prefill.options.map(t => ({title:t,note:""}));
+      while (opts.length < 2) opts.push(emptyOption());
+      setOptions(opts); setConditions([]); setConditionsFree(""); setCriteria([]); setStyle("objective");
+    } else if (savedTemp) {
       try {
         const parsed = JSON.parse(savedTemp);
         if (parsed.title !== undefined) setTitle(parsed.title);
@@ -148,10 +162,13 @@ export default function DecisionPage() {
       } catch (e) {
         console.error("임시 저장 데이터를 읽어오는 중 에러 발생", e);
       }
+    } else {
+      setTitle(""); setContent(""); setCategories([]); setOptions([emptyOption(),emptyOption()]);
+      setConditions([]); setConditionsFree(""); setCriteria([]); setStyle("objective");
     }
     setLoadedStorageKey(storageKey);
     setIsLoaded(true);
-  }, [storageKey]);
+  }, [storageKey, prefill, prefillKey, transferSignature]);
   //임시 서랍 실시간 저장
   useEffect(() => {
     //  짐다 꺼내기 전엔 저장 금지
@@ -263,6 +280,11 @@ export default function DecisionPage() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    await runConsult(false);
+  }
+
+  async function runConsult(proceed: boolean) {
+    if (loading || asking || restyling || saving) return;
 
     if (!content.trim()) {
       setError("고민 내용을 입력해 주세요.");
@@ -272,6 +294,8 @@ export default function DecisionPage() {
 
     setError(null);
 
+    setResult(null);
+    setSaved(false);
     setLoading(true);
     // 새상담 시작할 때 역질문 초기화
     setQuestions([]);
@@ -279,21 +303,13 @@ export default function DecisionPage() {
     try {
       //역질문 합치기
 
-      const [consultRes, questionsRes] = await Promise.all([
-        api.post<ConsultResponse>("/decisions/consult", buildRequest(style), {
-          timeout: 120000,
-        }),
-        api
-          .post<QuestionsResponse>(
-            "/decisions/questions",
-            buildRequest(style),
-            { timeout: 120000 },
-          )
-          .catch(() => null),
-      ]);
+      const config = { timeout: 300000, headers: { "X-Counseling-Session": sessionId.current, "X-Decision-Proceed": String(proceed) } };
+      const consultRes = await api.post<ConsultResponse & { questions?: string[] }>("/decisions/consult", buildRequest(style), config);
 
-      setResult(consultRes.data.result);
-      setQuestions(questionsRes?.data.questions ?? []);
+
+      setResult(consultRes.data.result ?? null);
+      setQuestions(consultRes.data.questions ?? []);
+
       setResultStyle(null);
       setSaved(consultRes.data.decisionId != null);
     } catch (err) {
@@ -315,7 +331,7 @@ export default function DecisionPage() {
       const res = await api.post<QuestionsResponse>(
         "/decisions/questions",
         buildRequest(style),
-        { timeout: 120000 },
+        { timeout: 300000, headers: { "X-Counseling-Session": sessionId.current } },
       );
       setQuestions(res.data.questions);
     } catch (err) {
@@ -334,7 +350,7 @@ export default function DecisionPage() {
       const res = await api.post<{ result: string }>(
         "/decisions/restyle",
         buildRequest(next),
-        { timeout: 120000 },
+        { timeout: 300000, headers: { "X-Counseling-Session": sessionId.current } },
       );
 
       setResult(res.data.result);
@@ -755,11 +771,12 @@ export default function DecisionPage() {
           </ol>
         )}
 
+        {!result && questions.length > 0 && <div><p>위 질문에 대한 답변을 고민 내용 또는 추가 조건에 입력하고 다시 상담해 주세요.</p><button type="button" disabled={loading || asking} onClick={() => void runConsult(true)}>현재 정보로 판단 계속하기</button></div>}
         <button
           type="submit"
           form="decision-form"
           className="btn btn-primary"
-          disabled={loading}
+          disabled={loading || asking || !!restyling || saving}
           style={{
             borderRadius: 12,
             border: "2px solid #0d6efd",
@@ -772,7 +789,7 @@ export default function DecisionPage() {
 
         {loading && (
           <span className="loading-text">
-            ⏳ AI가 고민을 분석하고 있어요... (10~20초 정도 걸려요)
+            ⏳ AI가 1차 분석 및 필요한 정보 수집, 2차 판단을 진행하고 있어요...
           </span>
         )}
       </div>

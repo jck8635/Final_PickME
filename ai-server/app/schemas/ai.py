@@ -47,5 +47,15 @@ class DecisionRequest(BaseModel):
     user_profile: UserProfile | None = None
 
     
+class AgentPlanning(BaseModel):
+    request: DecisionRequest
+
+
+class AgentEvaluation(BaseModel):
+    request: DecisionRequest
+    analysis: dict
+    evidence: dict
+
+
 class DecisionResponse(BaseModel):
     result: str

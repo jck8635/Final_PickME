@@ -1,6 +1,10 @@
 package com.pickme.chat;
 
 import java.util.List;
+import java.util.UUID;
+import java.util.Map;
+import org.springframework.web.bind.annotation.RequestHeader;
+import com.pickme.member.LoginUser;
 
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -18,9 +22,11 @@ public class ChatController {
     private static final int MAX_INPUT_LENGTH = 1000;
 
     private final AiClient aiClient;
+    private final ConversationStore conversations;
 
-    public ChatController(AiClient aiClient) {
+    public ChatController(AiClient aiClient, ConversationStore conversations) {
         this.aiClient = aiClient;
+        this.conversations = conversations;
     }
 
     public record ChatRequest(String message, String tone) {
@@ -34,14 +40,23 @@ public class ChatController {
     }
 
     @PostMapping
-    public ChatResponse send(@RequestBody ChatRequest req) {
+    public ChatResponse send(@RequestBody ChatRequest req,
+            @RequestHeader(value = "X-Counseling-Session", required = false) UUID sessionId) {
         String message = req.message() == null ? "" : req.message();
+        if (message.isBlank())
+            throw ApiException.badRequest("고민 내용을 입력해 주세요.");
         if (message.length() > MAX_INPUT_LENGTH) {
             throw ApiException.badRequest("입력은 " + MAX_INPUT_LENGTH + "자 이내로 작성해 주세요.");
         }
         String tone = req.tone() == null ? "empathy" : req.tone();
 
+        if (!List.of("empathy", "logic", "neutral").contains(tone))
+            tone = "empathy";
+        Integer userId = LoginUser.currentIdOrNull();
+        var context = Map.of("tone", tone);
+        UUID storedId = conversations.begin(userId, sessionId, message, tone, message, "chat", context);
         AiClient.ChatResult result = aiClient.chat(message, tone);
+        conversations.finish(userId, storedId, result.reply(), "chat", context);
         AiClient.ParsedDecision parsed = result.isCrisis() ? null : result.parsedData();
         DecisionDraft draft = null;
         if (parsed != null && parsed.options() != null && parsed.options().size() >= 2) {

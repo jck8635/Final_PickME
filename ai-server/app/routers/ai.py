@@ -16,6 +16,9 @@ from app.services.decision_service import (
     get_follow_up_questions,
 )
 
+from app.schemas.ai import AgentEvaluation, AgentPlanning
+from app.services.decision_agent import plan, evaluate
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["ai"])
@@ -86,3 +89,22 @@ def ask_questions(req: DecisionRequest) -> dict:
         raise HTTPException(status_code=503, detail=str(error)) from None
     # ...형태 돌려줌
     return {"questions": questions}
+
+
+@router.post("/decision/plan")
+def agent_plan(req: AgentPlanning):
+    try:
+        return plan(req.request)
+    except ConsultationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from None
+
+@router.post("/decision/evaluate", response_model=DecisionResponse)
+def agent_evaluate(req: AgentEvaluation):
+    r = req.request
+    prompt = build_prompt(r.categories, r.style, r.title, r.content, r.conditions,
+                          options=[o.model_dump() for o in r.options], criteria=r.criteria,
+                          user_profile=req.evidence.get("profile") if isinstance(req.evidence.get("profile"), dict) and "status" not in req.evidence["profile"] else None)
+    try:
+        return DecisionResponse(result=evaluate(prompt, req.analysis, req.evidence))
+    except ConsultationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from None

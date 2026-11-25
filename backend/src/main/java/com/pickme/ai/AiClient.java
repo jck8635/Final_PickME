@@ -117,6 +117,14 @@ public class AiClient {
         return post("/chat", Map.of("message", message, "tone", tone), ChatResult.class);
     }
 
+    public record AgentPlan(String summary, List<String> tools, List<String> missing) {}
+    public AgentPlan plan(DecisionRequest request) {
+        return post("/decision/plan", Map.of("request",request), AgentPlan.class);
+    }
+    public String evaluate(DecisionRequest request, AgentPlan plan, Map<String,Object> evidence) {
+        return post("/decision/evaluate", Map.of("request", request, "analysis", plan, "evidence", evidence), DecisionResult.class).result();
+    }
+
     public String consult(DecisionRequest request) {
         return post("/decision/consult", request, DecisionResult.class).result();
     }

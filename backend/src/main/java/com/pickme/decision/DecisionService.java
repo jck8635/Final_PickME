@@ -62,7 +62,8 @@ public class DecisionService {
             String result) {
     }
 
-    public record ConsultResponse(String result, Integer decisionId) {
+    public record ConsultResponse(String result, Integer decisionId, List<String> questions) {
+        public ConsultResponse(String result, Integer decisionId) { this(result, decisionId, List.of()); }
     }
 
     public record PopularItem(String title, long count) {
@@ -151,7 +152,7 @@ public class DecisionService {
         return decisionId;
     }
 
-    private Prepared prepare(ConsultRequest req) {
+    Prepared prepare(ConsultRequest req) {
         String content = strip(req.content());
         if (content.isEmpty()) {
             throw ApiException.badRequest("고민 내용을 입력해 주세요.");
@@ -197,7 +198,7 @@ public class DecisionService {
     }
 
     // 프로필을 함께받아서 AI 요청
-    private static AiClient.DecisionRequest toAiRequest(Prepared p, ProfileResponse profile) {
+    static AiClient.DecisionRequest toAiRequest(Prepared p, ProfileResponse profile) {
         AiClient.UserProfileForAi aiprofile = profile == null ? null
                 : new AiClient.UserProfileForAi(
                         profile.region(), profile.occupation(), profile.mbti(),
