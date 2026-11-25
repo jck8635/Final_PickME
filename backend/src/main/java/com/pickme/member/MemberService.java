@@ -21,28 +21,67 @@ public class MemberService {
 
     private final UserRepository users;
     private final PasswordEncoder passwordEncoder;
+    private final UserProfileService userProfileService;
 
-    public MemberService(UserRepository users, PasswordEncoder passwordEncoder) {
+    public MemberService(
+            UserRepository users,
+            PasswordEncoder passwordEncoder,
+            UserProfileService userProfileService) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
+        this.userProfileService = userProfileService;
     }
 
     @Transactional
-    public User register(String rawEmail, String rawNickname, String rawPassword) {
+    public User register(
+            String rawEmail,
+            String rawNickname,
+            String rawPassword) {
+        return register(
+                rawEmail,
+                rawNickname,
+                rawPassword,
+                null);
+    }
+
+    @Transactional
+    public User register(
+            String rawEmail,
+            String rawNickname,
+            String rawPassword,
+            UserProfileService.ProfileUpdateRequest profile) {
         String email = email(rawEmail);
         String nickname = nickname(rawNickname);
         String password = password(rawPassword);
+
         if (users.findByEmailIgnoreCase(email).isPresent()) {
             throw ApiException.conflict("이미 가입된 이메일입니다.");
         }
+
         if (users.existsByNickname(nickname)) {
             throw ApiException.conflict("이미 사용 중인 닉네임입니다.");
         }
+
+        User user;
+
         try {
-            return users.saveAndFlush(new User(email, nickname, passwordEncoder.encode(password)));
+            user = users.saveAndFlush(
+                    new User(
+                            email,
+                            nickname,
+                            passwordEncoder.encode(password)));
         } catch (DataIntegrityViolationException e) {
-            throw ApiException.conflict("이미 사용 중인 회원 정보입니다. 이메일과 닉네임을 확인해주세요.");
+            throw ApiException.conflict(
+                    "이미 사용 중인 회원 정보입니다. 이메일과 닉네임을 확인해주세요.");
         }
+
+        if (profile != null) {
+            userProfileService.updateProfile(
+                    user.getId(),
+                    profile);
+        }
+
+        return user;
     }
 
     @Transactional(readOnly = true)

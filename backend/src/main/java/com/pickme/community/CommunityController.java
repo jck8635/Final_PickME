@@ -4,20 +4,10 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseStatus;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import com.pickme.member.LoginUser;
 
-/** 커뮤니티. 목록 조회는 누구나, 작성/투표/공감/댓글은 로그인 필요(SecurityConfig). */
 @RestController
 @RequestMapping("/api/community")
 public class CommunityController {
@@ -28,19 +18,35 @@ public class CommunityController {
         this.community = community;
     }
 
-    public record PostRequest(String title, String content, String category, List<String> options) {
+    public record PostRequest(
+            String title,
+            String content,
+            String category,
+            List<String> options) {
     }
 
     public record CommentRequest(String content) {
     }
 
     @GetMapping("/posts")
-    public CommunityService.Feed feed(@RequestParam(defaultValue = "전체") String category,
-            @RequestParam(defaultValue = "") String q) {
-        return community.feed(category, q, LoginUser.currentIdOrNull());
+    public CommunityService.Feed feed(
+            @RequestParam(name = "category", defaultValue = "전체") String category,
+            @RequestParam(name = "q", defaultValue = "") String q,
+            @RequestParam(name = "scope", defaultValue = "all") String scope,
+            @RequestParam(name = "page", defaultValue = "1") int page) {
+
+        return community.feed(
+                category,
+                q,
+                LoginUser.currentIdOrNull(),
+                scope, page);
     }
 
-    /** 5초마다 호출해 다른 사람의 변경이 있으면 화면을 새로 고칩니다. */
+    @GetMapping("/posts/{postId}")
+    public CommunityService.PostView detail(@PathVariable("postId") Integer postId) {
+        return community.detail(postId, LoginUser.currentIdOrNull());
+    }
+
     @GetMapping("/updates")
     public Map<String, String> updates() {
         return Map.of("updatedAt", community.latestUpdate());
@@ -48,57 +54,122 @@ public class CommunityController {
 
     @PostMapping("/posts")
     @ResponseStatus(HttpStatus.CREATED)
-    public Map<String, Object> create(@RequestBody PostRequest req) {
-        Integer id = community.createPost(LoginUser.requireId(), req.title(), req.content(), req.category(),
+    public Map<String, Object> create(
+            @RequestBody PostRequest req) {
+
+        var result = community.createPost(
+                LoginUser.requireId(),
+                req.title(),
+                req.content(),
+                req.category(),
                 req.options());
-        return Map.of("id", id, "message", "고민 투표를 등록했습니다.");
+
+        return Map.of(
+                "id", result.id(),
+                "message", "고민 투표를 등록했습니다.",
+                "warning", result.warning());
     }
 
     @PutMapping("/posts/{postId}")
-    public Map<String, String> edit(@PathVariable Integer postId, @RequestBody PostRequest req) {
-        community.editPost(LoginUser.requireId(), postId, req.title(), req.content(), req.category());
-        return Map.of("message", "게시글을 수정했습니다.");
+    public Map<String, String> edit(
+            @PathVariable("postId") Integer postId,
+            @RequestBody PostRequest req) {
+
+        String warning = community.editPost(
+                LoginUser.requireId(),
+                postId,
+                req.title(),
+                req.content(),
+                req.category());
+
+        return Map.of("message", "게시글을 수정했습니다.", "warning", warning);
     }
 
     @DeleteMapping("/posts/{postId}")
-    public Map<String, String> delete(@PathVariable Integer postId) {
-        community.deletePost(LoginUser.requireId(), postId);
+    public Map<String, String> delete(
+            @PathVariable("postId") Integer postId) {
+
+        community.deletePost(
+                LoginUser.requireId(),
+                postId);
+
         return Map.of("message", "게시글을 삭제했습니다.");
     }
 
     @PostMapping("/posts/{postId}/votes/{optionId}")
-    public Map<String, String> vote(@PathVariable Integer postId, @PathVariable Integer optionId) {
-        community.vote(LoginUser.requireId(), postId, optionId);
+    public Map<String, String> vote(
+            @PathVariable("postId") Integer postId,
+            @PathVariable("optionId") Integer optionId) {
+
+        community.vote(
+                LoginUser.requireId(),
+                postId,
+                optionId);
+
         return Map.of("message", "투표가 반영되었습니다.");
     }
 
     @DeleteMapping("/posts/{postId}/votes")
-    public Map<String, String> cancelVote(@PathVariable Integer postId) {
-        return Map.of("message", community.cancelVote(LoginUser.requireId(), postId));
+    public Map<String, String> cancelVote(
+            @PathVariable("postId") Integer postId) {
+
+        return Map.of(
+                "message",
+                community.cancelVote(
+                        LoginUser.requireId(),
+                        postId));
     }
 
     @PostMapping("/posts/{postId}/like")
-    public Map<String, Boolean> like(@PathVariable Integer postId) {
-        return Map.of("liked", community.toggleLike(LoginUser.requireId(), postId));
+    public Map<String, Boolean> like(
+            @PathVariable("postId") Integer postId) {
+
+        return Map.of(
+                "liked",
+                community.toggleLike(
+                        LoginUser.requireId(),
+                        postId));
     }
 
     @PostMapping("/posts/{postId}/comments")
     @ResponseStatus(HttpStatus.CREATED)
-    public Map<String, String> comment(@PathVariable Integer postId, @RequestBody CommentRequest req) {
-        community.addComment(LoginUser.requireId(), postId, req.content());
-        return Map.of("message", "댓글을 등록했습니다.");
+    public Map<String, String> comment(
+            @PathVariable("postId") Integer postId,
+            @RequestBody CommentRequest req) {
+
+        String warning = community.addComment(
+                LoginUser.requireId(),
+                postId,
+                req.content());
+
+        return Map.of("message", "댓글을 등록했습니다.", "warning", warning);
     }
 
     @PutMapping("/posts/{postId}/comments/{commentId}")
-    public Map<String, String> editComment(@PathVariable Integer postId, @PathVariable Integer commentId,
+    public Map<String, String> editComment(
+            @PathVariable("postId") Integer postId,
+            @PathVariable("commentId") Integer commentId,
             @RequestBody CommentRequest req) {
-        community.editComment(LoginUser.requireId(), postId, commentId, req.content());
-        return Map.of("message", "댓글을 수정했습니다.");
+
+        String warning = community.editComment(
+                LoginUser.requireId(),
+                postId,
+                commentId,
+                req.content());
+
+        return Map.of("message", "댓글을 수정했습니다.", "warning", warning);
     }
 
     @DeleteMapping("/posts/{postId}/comments/{commentId}")
-    public Map<String, String> deleteComment(@PathVariable Integer postId, @PathVariable Integer commentId) {
-        community.deleteComment(LoginUser.requireId(), postId, commentId);
+    public Map<String, String> deleteComment(
+            @PathVariable("postId") Integer postId,
+            @PathVariable("commentId") Integer commentId) {
+
+        community.deleteComment(
+                LoginUser.requireId(),
+                postId,
+                commentId);
+
         return Map.of("message", "댓글을 삭제했습니다.");
     }
 }

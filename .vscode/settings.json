@@ -27,5 +27,6 @@
     "**/build": true,
     "**/dist": true,
     "**/.venv": true
-  }
+  },
+  "python.terminal.useEnvFile": true
 }

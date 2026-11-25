@@ -1,3 +1,4 @@
+
 plugins {
     id 'java'
     id 'org.springframework.boot' version '4.1.2'
@@ -56,4 +57,9 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+// Preserve Java method parameter names for Spring MVC argument binding.
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs.add("-parameters")
 }

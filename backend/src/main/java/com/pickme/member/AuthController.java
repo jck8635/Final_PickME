@@ -29,14 +29,23 @@ import jakarta.servlet.http.HttpSession;
 public class AuthController {
 
     private final MemberService memberService;
-    private final SecurityContextRepository securityContextRepository =
-            new HttpSessionSecurityContextRepository();
+    private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
     public AuthController(MemberService memberService) {
         this.memberService = memberService;
     }
 
-    public record SignupRequest(String email, String nickname, String password) {
+    public record SignupRequest(
+            String email,
+            String nickname,
+            String password,
+            Integer birthYear,
+            String region,
+            String occupation,
+            String mbti,
+            List<String> interests,
+            List<String> dislikedFoods,
+            String bio) {
     }
 
     public record LoginRequest(String email, String password) {
@@ -65,8 +74,25 @@ public class AuthController {
     @PostMapping("/auth/signup")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, String> signup(@RequestBody SignupRequest req) {
-        memberService.register(req.email(), req.nickname(), req.password());
-        return Map.of("message", "회원가입되었습니다. 로그인해주세요.");
+
+        UserProfileService.ProfileUpdateRequest profile = new UserProfileService.ProfileUpdateRequest(
+                req.birthYear(),
+                req.region(),
+                req.occupation(),
+                req.mbti(),
+                req.interests(),
+                req.dislikedFoods(),
+                req.bio());
+
+        memberService.register(
+                req.email(),
+                req.nickname(),
+                req.password(),
+                profile);
+
+        return Map.of(
+                "message",
+                "회원가입되었습니다. 로그인해주세요.");
     }
 
     @PostMapping("/auth/login")

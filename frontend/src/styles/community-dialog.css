@@ -1,0 +1,16 @@
+/* 커뮤니티 글 작성 창의 위치와 내부 스크롤만 조정합니다. */
+
+dialog.post-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+
+  width: min(560px, calc(100vw - 28px));
+  height: fit-content;
+
+  max-height: calc(100vh - 28px);
+  max-height: calc(100dvh - 28px);
+
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

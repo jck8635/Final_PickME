@@ -2,6 +2,7 @@ package com.pickme;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -14,13 +15,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import java.util.Map;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
@@ -30,6 +35,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import com.pickme.ai.AiClient;
+import com.pickme.common.ApiException;
+import com.pickme.community.CommunityModeration;
 import com.pickme.member.LegacyAwarePasswordEncoderTest;
 
 import tools.jackson.databind.JsonNode;
@@ -51,6 +58,26 @@ class ApiFlowTest {
 
     @MockitoBean
     AiClient aiClient;
+
+    @MockitoBean
+    CommunityModeration moderation;
+
+    @MockitoBean
+    com.pickme.member.UserProfileService userProfileService;
+
+    @BeforeEach
+    void allowCommunityTextByDefault() {
+        when(moderation.check(anyMap())).thenReturn("");
+    }
+
+    @AfterEach
+    void removeCommunityFixtures() {
+        jdbc.update("""
+                delete from post where user_id in (
+                    select id from "user" where email in ('pagination@example.com', 'moderation@example.com')
+                )
+                """);
+    }
 
     // ---------- helpers ----------
 
@@ -117,6 +144,7 @@ class ApiFlowTest {
         assertThat(json(res).get("message").asString()).isEqualTo("올바른 이메일 형식으로 입력해주세요.");
 
         res = postJson("/api/auth/signup", new Signup("a@b.co", "닉", "short"), null);
+        assertThat(res.getResponse().getStatus()).isEqualTo(400);
         assertThat(json(res).get("message").asString())
                 .isEqualTo("비밀번호는 공백만 사용하지 않고 8자 이상 입력해주세요.");
     }
@@ -180,7 +208,7 @@ class ApiFlowTest {
     // ---------- 결정 도우미 + 고민 기록 ----------
 
     @Test
-    void consultSavesHistoryForLoggedInUser() throws Exception {
+    void manualSaveCreatesHistoryForLoggedInUser() throws Exception {
         when(aiClient.consult(any())).thenReturn("짬뽕을 추천해요.");
         MockHttpSession session = signupAndLogin("history@example.com", "기록왕");
 
@@ -194,7 +222,13 @@ class ApiFlowTest {
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andReturn();
         assertThat(res.getResponse().getStatus()).isEqualTo(200);
         assertThat(json(res).get("result").asString()).isEqualTo("짬뽕을 추천해요.");
-        int id = json(res).get("decisionId").asInt();
+        assertThat(json(res).get("decisionId").isNull()).isTrue();
+        var saveBody = objectMapper.readTree(body);
+        ((tools.jackson.databind.node.ObjectNode) saveBody).put("result", "짬뽕을 추천해요.");
+        MvcResult saved = mvc.perform(post("/api/decisions/save").with(csrf()).session(session)
+                .contentType(MediaType.APPLICATION_JSON).content(saveBody.toString()))
+                .andExpect(status().isOk()).andReturn();
+        int id = json(saved).get("decisionId").asInt();
 
         ArgumentCaptor<AiClient.DecisionRequest> captor = ArgumentCaptor.forClass(AiClient.DecisionRequest.class);
         Mockito.verify(aiClient).consult(captor.capture());
@@ -204,7 +238,6 @@ class ApiFlowTest {
         assertThat(sent.options()).hasSize(2);
         assertThat(sent.criteria()).isEqualTo("비용 (예산)(5점), 시간 효율(보류)");
 
-        // 기록 목록
         MvcResult list = mvc.perform(get("/api/history").session(session)).andReturn();
         JsonNode item = json(list).get(0);
         assertThat(item.get("id").asInt()).isEqualTo(id);
@@ -213,30 +246,26 @@ class ApiFlowTest {
         assertThat(item.get("result").asString()).isEqualTo("짬뽕을 추천해요.");
         assertThat(item.get("options").get(0).get("title").asString()).isEqualTo("짬뽕");
 
-        // 검색/필터
         assertThat(json(mvc.perform(get("/api/history").param("q", "점심").session(session)).andReturn())).hasSize(1);
         assertThat(json(mvc.perform(get("/api/history").param("q", "없는말").session(session)).andReturn())).isEmpty();
         assertThat(json(mvc.perform(get("/api/history").param("category", "진로/직업").session(session))
                 .andReturn())).isEmpty();
 
-        // 북마크 / 회고
         mvc.perform(post("/api/history/" + id + "/bookmark").with(csrf()).session(session))
                 .andExpect(jsonPath("$.bookmarked").value(true));
         mvc.perform(put("/api/history/" + id + "/retrospective").with(csrf()).session(session)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"actualChoice\":\"짬뽕\",\"satisfactionScore\":\"6\",\"retrospectiveNote\":\"\"}"))
+                .content("{\"actualChoice\":\"짜장면\",\"satisfactionScore\":\"6\",\"retrospectiveNote\":\"\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("만족도 점수는 1점에서 5점 사이여야 합니다."));
         mvc.perform(put("/api/history/" + id + "/retrospective").with(csrf()).session(session)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"actualChoice\":\"짬뽕\",\"satisfactionScore\":\"5\",\"retrospectiveNote\":\"좋았음\"}"))
+                .content("{\"actualChoice\":\"짜장면\",\"satisfactionScore\":\"5\",\"retrospectiveNote\":\"좋았음\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.satisfactionScore").value(5));
 
-        // 다른 사람은 내 기록을 못 지움
         MockHttpSession other = signupAndLogin("other@example.com", "남");
         mvc.perform(delete("/api/history/" + id).with(csrf()).session(other)).andExpect(status().isNotFound());
-
         mvc.perform(delete("/api/history/" + id).with(csrf()).session(session)).andExpect(status().isOk());
         assertThat(json(mvc.perform(get("/api/history").session(session)).andReturn())).isEmpty();
     }
@@ -255,14 +284,154 @@ class ApiFlowTest {
                 .andExpect(jsonPath("$.message").value("고민 내용을 입력해 주세요."));
     }
 
+    @Test
+    void guestQuestionsAndSaveAuthorization() throws Exception {
+        when(aiClient.questions(any())).thenReturn(List.of("예산은 얼마인가요?"));
+        mvc.perform(post("/api/decisions/questions").with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"고민\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.questions[0]").value("예산은 얼마인가요?"));
+        mvc.perform(post("/api/decisions/save").with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"고민\",\"result\":\"결과\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
     // ---------- 커뮤니티 ----------
+
+    @Test
+    void communityPaginatesWithStableOrderAndFilter() throws Exception {
+        MockHttpSession user = signupAndLogin(
+                "pagination@example.com",
+                "페이지");
+
+        jdbc.update("""
+                insert into post (
+                    user_id,
+                    title,
+                    content,
+                    category,
+                    created_at,
+                    updated_at
+                )
+                select
+                    id,
+                    '페이지 ' || n,
+                    '내용',
+                    '기타',
+                    current_timestamp,
+                    current_timestamp
+                from "user"
+                cross join system_range(1, 21) as numbers(n)
+                where email = 'pagination@example.com'
+                order by n
+                """);
+
+        // 21개 게시글 → 10개, 10개, 1개로 조회
+        for (int page = 1; page <= 3; page++) {
+            JsonNode feed = json(
+                    mvc.perform(
+                            get("/api/community/posts")
+                                    .param("category", "기타")
+                                    .param("q", "페이지")
+                                    .param("scope", "mine")
+                                    .param("page", String.valueOf(page))
+                                    .session(user))
+                            .andExpect(status().isOk())
+                            .andReturn());
+
+            assertThat(feed.get("page").asInt())
+                    .isEqualTo(page);
+
+            assertThat(feed.get("totalPages").asInt())
+                    .isEqualTo(3);
+
+            assertThat(feed.get("posts"))
+                    .hasSize(page < 3 ? 10 : 1);
+
+            assertThat(feed.get("posts")
+                    .get(0)
+                    .get("title")
+                    .asString())
+                    .isEqualTo("페이지 " + (21 - (page - 1) * 10));
+        }
+
+        int oldest = jdbc.queryForObject(
+                "select min(id) from post",
+                Integer.class);
+
+        postJson(
+                "/api/community/posts/" + oldest + "/like",
+                null,
+                user);
+
+        JsonNode first = json(
+                mvc.perform(
+                        get("/api/community/posts")
+                                .param("category", "기타")
+                                .param("page", "1"))
+                        .andExpect(status().isOk())
+                        .andReturn());
+
+        assertThat(first.get("featuredPost")
+                .get("id")
+                .asInt())
+                .isEqualTo(oldest);
+
+        assertThat(first.get("posts")
+                .get(0)
+                .get("id")
+                .asInt())
+                .isNotEqualTo(oldest);
+    }
+
+    @Test
+    void moderationBlocksWritesAndReturnsWarnings() throws Exception {
+        MockHttpSession user = signupAndLogin("moderation@example.com", "검사");
+        Post input = new Post("모델 검사", "입력", "기타", List.of("선택 A", "선택 B"));
+        var fields = Map.of("title", input.title(), "content", input.content(), "options", input.options());
+
+        when(moderation.check(fields))
+                .thenThrow(new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "차단"))
+                .thenThrow(new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "검사 실패"))
+                .thenReturn("경고");
+        assertThat(postJson("/api/community/posts", input, user).getResponse().getStatus()).isEqualTo(422);
+        assertThat(postJson("/api/community/posts", input, user).getResponse().getStatus()).isEqualTo(503);
+        assertThat(jdbc.queryForObject("select count(*) from post", Integer.class)).isZero();
+
+        MvcResult created = postJson("/api/community/posts", input, user);
+        assertThat(created.getResponse().getStatus()).isEqualTo(201);
+        assertThat(json(created).get("warning").asString()).isEqualTo("경고");
+        int id = json(created).get("id").asInt();
+
+        when(moderation.check(Map.of("comment", "차단 입력")))
+                .thenThrow(new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "차단"));
+        assertThat(postJson("/api/community/posts/" + id + "/comments",
+                new Comment("차단 입력"), user).getResponse().getStatus()).isEqualTo(422);
+        assertThat(jdbc.queryForObject("select count(*) from comment", Integer.class)).isZero();
+
+        when(moderation.check(Map.of("title", "차단 제목", "content", "입력")))
+                .thenThrow(new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "차단"));
+        mvc.perform(put("/api/community/posts/" + id).with(csrf()).session(user)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new Post("차단 제목", "입력", "기타", null))))
+                .andExpect(status().is(422));
+        assertThat(jdbc.queryForObject("select title from post where id = ?", String.class, id))
+                .isEqualTo(input.title());
+
+        postJson("/api/community/posts/" + id + "/comments", new Comment("기존 댓글"), user);
+        int commentId = jdbc.queryForObject("select id from comment where post_id = ?", Integer.class, id);
+        mvc.perform(put("/api/community/posts/" + id + "/comments/" + commentId).with(csrf()).session(user)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new Comment("차단 입력"))))
+                .andExpect(status().is(422));
+        assertThat(jdbc.queryForObject("select content from comment where id = ?", String.class, commentId))
+                .isEqualTo("기존 댓글");
+    }
 
     @Test
     void communityFlow() throws Exception {
         MockHttpSession alice = signupAndLogin("alice@example.com", "앨리스");
         MockHttpSession bob = signupAndLogin("bob@example.com", "밥");
 
-        // 선택지 1개 → 거절
         MvcResult bad = postJson("/api/community/posts",
                 new Post("제목", "내용", "음식/식사", List.of("하나")), alice);
         assertThat(bad.getResponse().getStatus()).isEqualTo(400);
@@ -278,15 +447,20 @@ class ApiFlowTest {
         int optionA = post.get("options").get(0).get("id").asInt();
         int optionB = post.get("options").get(1).get("id").asInt();
 
-        // 투표 → 표 옮기기 → 공감 → 댓글
         postJson("/api/community/posts/" + postId + "/votes/" + optionA, null, bob);
         postJson("/api/community/posts/" + postId + "/votes/" + optionB, null, bob);
         postJson("/api/community/posts/" + postId + "/votes/" + optionB, null, alice);
         postJson("/api/community/posts/" + postId + "/like", null, bob);
         postJson("/api/community/posts/" + postId + "/comments", new Comment("짜장면 추천"), bob);
 
-        post = json(mvc.perform(get("/api/community/posts").param("category", "음식/식사").session(bob))
-                .andReturn()).get("posts").get(0);
+        feed = json(mvc.perform(get("/api/community/posts").param("category", "음식/식사").session(bob))
+                .andReturn());
+        assertThat(feed.get("featuredPost").get("id").asInt()).isEqualTo(postId);
+        assertThat(feed.get("featuredPost").get("count").asLong()).isEqualTo(2);
+        assertThat(feed.get("posts").get(0).get("commentCount").asInt()).isEqualTo(1);
+        assertThat(feed.get("posts").get(0).get("comments")).isEmpty();
+
+        post = json(mvc.perform(get("/api/community/posts/" + postId).session(bob)).andReturn());
         assertThat(post.get("totalVotes").asLong()).isEqualTo(2);
         assertThat(post.get("options").get(1).get("count").asLong()).isEqualTo(2);
         assertThat(post.get("options").get(1).get("percent").asInt()).isEqualTo(100);
@@ -294,21 +468,19 @@ class ApiFlowTest {
         assertThat(post.get("liked").asBoolean()).isTrue();
         assertThat(post.get("likeCount").asLong()).isEqualTo(1);
         assertThat(post.get("mine").asBoolean()).isFalse();
+
         JsonNode comment = post.get("comments").get(0);
         assertThat(comment.get("authorNickname").asString()).isEqualTo("밥");
         assertThat(comment.get("mine").asBoolean()).isTrue();
 
-        // 검색: 선택지 이름으로도 찾기
         assertThat(json(mvc.perform(get("/api/community/posts").param("q", "짜장")).andReturn())
                 .get("posts")).hasSize(1);
 
-        // 남의 글은 수정 불가
         MvcResult forbidden = mvc.perform(put("/api/community/posts/" + postId).with(csrf()).session(bob)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(new Post("x", "y", "기타", null)))).andReturn();
         assertThat(forbidden.getResponse().getStatus()).isEqualTo(403);
 
-        // 댓글 수정/삭제, 투표 취소
         int commentId = comment.get("id").asInt();
         mvc.perform(put("/api/community/posts/" + postId + "/comments/" + commentId).with(csrf()).session(bob)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"수정된 댓글\"}"))
@@ -316,14 +488,12 @@ class ApiFlowTest {
         mvc.perform(delete("/api/community/posts/" + postId + "/votes").with(csrf()).session(bob))
                 .andExpect(jsonPath("$.message").value("투표를 취소했습니다."));
 
-        // 글 삭제 → 선택지/투표/공감/댓글 함께 삭제
         mvc.perform(delete("/api/community/posts/" + postId).with(csrf()).session(alice))
                 .andExpect(status().isOk());
         assertThat(json(mvc.perform(get("/api/community/posts")).andReturn()).get("posts")).isEmpty();
         assertThat(jdbc.queryForObject("select count(*) from community_votes", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from comment", Integer.class)).isZero();
 
-        // 로그인 없이 작성 → 401
         mvc.perform(post("/api/community/posts").with(csrf()).contentType(MediaType.APPLICATION_JSON)
                 .content("{}")).andExpect(status().isUnauthorized());
     }

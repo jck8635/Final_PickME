@@ -1,0 +1,13 @@
+.gradle
+build
+bin
+out
+data
+.env
+.env.*
+admin-local.properties
+.git
+.idea
+*.log
+*.db
+*.mv.db

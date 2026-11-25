@@ -17,7 +17,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.pickme.common.ApiException;
 
 /**
- * FastAPI(AI 서버) 호출. FastAPI 의 오류 {"detail": "..."} 는 같은 상태코드의 ApiException 으로 바꿉니다.
+ * FastAPI(AI 서버) 호출. FastAPI 의 오류 {"detail": "..."} 는 같은 상태코드의 ApiException 으로
+ * 바꿉니다.
  */
 @Component
 public class AiClient {
@@ -44,9 +45,17 @@ public class AiClient {
     public record DecisionOption(String title, String note) {
     }
 
+      // [마이페이지 사용자 정보] AI 서버의 user_profile 과 같은 구조
+    public record UserProfileForAi(
+            String region, String occupation, String mbti,
+            List<String> interests, List<String> dislikedFoods, String bio) {
+    }
+
+    // [요청 양식] user_profile 칸 추가. JSON 키 이름을 "user_profile" 로 고정합니다.
     public record DecisionRequest(
             List<String> categories, String style, String title, String content,
-            String conditions, List<DecisionOption> options, String criteria) {
+            String conditions, List<DecisionOption> options, String criteria,
+            @JsonProperty("user_profile") UserProfileForAi userProfile) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -57,12 +66,81 @@ public class AiClient {
     record ErrorBody(Object detail) {
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record EmbeddingResponse(
+            String model,
+            int dimension,
+            List<Double> embedding) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record QueryEmbeddingResponse(
+            String model,
+            int dimension,
+            List<Double> embedding) {
+    }
+
+    public QueryEmbeddingResponse createQueryEmbedding(String text) {
+        QueryEmbeddingResponse response = post(
+                "/history/history/query-embedding",
+                Map.of("text", text),
+                QueryEmbeddingResponse.class);
+
+        if (response == null
+                || response.embedding() == null
+                || response.embedding().size() != 768) {
+            throw new IllegalStateException(
+                    "검색용 임베딩 생성에 실패했습니다.");
+        }
+
+        return response;
+    }
+
+    public EmbeddingResponse createEmbedding(String text) {
+        EmbeddingResponse response = post(
+                "/history/embedding",
+                Map.of("text", text),
+                EmbeddingResponse.class);
+
+        if (response.embedding() == null
+                || response.dimension() != 768
+                || response.embedding().size() != 768) {
+            throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "AI 임베딩 차원이 올바르지 않습니다.");
+        }
+
+        return response;
+    }
+
     public ChatResult chat(String message, String tone) {
         return post("/chat", Map.of("message", message, "tone", tone), ChatResult.class);
     }
 
     public String consult(DecisionRequest request) {
         return post("/decision/consult", request, DecisionResult.class).result();
+    }
+
+    public record HistoryRank(Integer decisionId, int score) {}
+    public record HistoryRanking(List<HistoryRank> ranking) {}
+    public record HistorySummary(String summary) {}
+
+    public HistoryRanking rankHistory(String text, List<?> candidates) {
+        return post("/history/rag/rank", Map.of("text", text, "candidates", candidates), HistoryRanking.class);
+    }
+
+    public HistorySummary summarizeHistory(String text, List<?> candidates) {
+        return post("/history/rag/summary", Map.of("text", text, "candidates", candidates), HistorySummary.class);
+    }
+
+    // [역질문] AI 서버의 /decision/questions 를 호출해 질문 목록을 받아옵니다.
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record QuestionResult(List<String> questions) {
+    }
+
+    public List<String> questions(DecisionRequest request) {
+        // 기존 post() 함수를 그대로 써서 연결 실패와 오류 처리도 같은 방식으로 합니다.
+        return post("/decision/questions", request, QuestionResult.class).questions();
     }
 
     private <T> T post(String uri, Object body, Class<T> type) {
