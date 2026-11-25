@@ -1,9 +1,11 @@
 import json
+
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
 from google.genai import types
-from app.services.gemini import generate
+from pydantic import BaseModel, Field
+
 from app.core.config import get_settings
+from app.services.gemini import generate
 
 router = APIRouter(prefix="/history/rag", tags=["history-rag"])
 
@@ -58,7 +60,7 @@ def ask(req, instruction, schema):
         )
         return schema.model_validate_json(raw)
     except Exception:
-        raise HTTPException(status_code=503, detail="AI 검색 분석을 사용할 수 없습니다.")
+        raise HTTPException(status_code=503, detail="AI 검색 분석을 사용할 수 없습니다.") from None
 
 
 @router.post("/rank", response_model=Ranking)

@@ -11,7 +11,7 @@ import logging
 
 from fastapi import FastAPI
 
-from app.routers import ai, health, embedding
+from app.routers import ai, embedding, health, history_rag
 
 logging.basicConfig(level=logging.INFO)
 
@@ -23,5 +23,4 @@ app.include_router(ai.router)
 # 새로 추가
 app.include_router(embedding.router)
 
-from app.routers import history_rag
 app.include_router(history_rag.router)

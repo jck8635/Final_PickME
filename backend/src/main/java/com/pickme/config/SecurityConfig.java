@@ -70,7 +70,8 @@ public class SecurityConfig {
                         HttpMethod.POST,
                         "/api/chat",
                         "/api/decisions/consult",
-                        "/api/decisions/restyle").permitAll()
+                        "/api/decisions/restyle",
+                        "/api/decisions/questions").permitAll()
                 .requestMatchers(
                         HttpMethod.GET,
                         "/api/decisions/popular",

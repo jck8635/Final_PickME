@@ -62,6 +62,9 @@ class ApiFlowTest {
     @MockitoBean
     CommunityModeration moderation;
 
+    @MockitoBean
+    com.pickme.member.UserProfileService userProfileService;
+
     @BeforeEach
     void allowCommunityTextByDefault() {
         when(moderation.check(anyMap())).thenReturn("");
@@ -205,7 +208,7 @@ class ApiFlowTest {
     // ---------- 결정 도우미 + 고민 기록 ----------
 
     @Test
-    void consultSavesHistoryForLoggedInUser() throws Exception {
+    void manualSaveCreatesHistoryForLoggedInUser() throws Exception {
         when(aiClient.consult(any())).thenReturn("짬뽕을 추천해요.");
         MockHttpSession session = signupAndLogin("history@example.com", "기록왕");
 
@@ -219,7 +222,13 @@ class ApiFlowTest {
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andReturn();
         assertThat(res.getResponse().getStatus()).isEqualTo(200);
         assertThat(json(res).get("result").asString()).isEqualTo("짬뽕을 추천해요.");
-        int id = json(res).get("decisionId").asInt();
+        assertThat(json(res).get("decisionId").isNull()).isTrue();
+        var saveBody = objectMapper.readTree(body);
+        ((tools.jackson.databind.node.ObjectNode) saveBody).put("result", "짬뽕을 추천해요.");
+        MvcResult saved = mvc.perform(post("/api/decisions/save").with(csrf()).session(session)
+                .contentType(MediaType.APPLICATION_JSON).content(saveBody.toString()))
+                .andExpect(status().isOk()).andReturn();
+        int id = json(saved).get("decisionId").asInt();
 
         ArgumentCaptor<AiClient.DecisionRequest> captor = ArgumentCaptor.forClass(AiClient.DecisionRequest.class);
         Mockito.verify(aiClient).consult(captor.capture());
@@ -273,6 +282,17 @@ class ApiFlowTest {
                 .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\" \"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("고민 내용을 입력해 주세요."));
+    }
+
+    @Test
+    void guestQuestionsAndSaveAuthorization() throws Exception {
+        when(aiClient.questions(any())).thenReturn(List.of("예산은 얼마인가요?"));
+        mvc.perform(post("/api/decisions/questions").with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"고민\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.questions[0]").value("예산은 얼마인가요?"));
+        mvc.perform(post("/api/decisions/save").with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"고민\",\"result\":\"결과\"}"))
+                .andExpect(status().isUnauthorized());
     }
 
     // ---------- 커뮤니티 ----------

@@ -1,4 +1,3 @@
-
 """Gemini 임베딩 생성 서비스."""
 
 from google.genai import types
@@ -39,13 +38,12 @@ def create_embedding(text: str) -> list[float]:
 
 
 def create_query_embedding(text: str) -> list[float]:
-    from google import genai
-    from google.genai import types
     import os
 
-    client = genai.Client(
-        api_key=os.environ["GEMINI_API_KEY"]
-    )
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
     response = client.models.embed_content(
         model="gemini-embedding-001",

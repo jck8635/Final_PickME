@@ -1,10 +1,12 @@
 """AI 상담/결정 도우미 API 테스트. Gemini 는 호출하지 않습니다(모킹)."""
 
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.config import Settings
 from app.main import app
 from app.services import chat_service, decision_service, gemini
 from app.services.chat_service import ChatService
@@ -130,7 +132,27 @@ def test_consult_without_key_returns_503(no_api_key):
     assert res.status_code == 503
 
 
+def test_settings_env_file_is_independent_of_working_directory():
+    env_file = Path(Settings.model_config["env_file"])
+    assert env_file.is_absolute()
+    assert env_file == Path(__file__).resolve().parents[1] / ".env"
+
+
 def test_chat_service_module_has_no_env_lookups():
     import inspect
 
     assert "os.environ" not in inspect.getsource(chat_service)
+
+
+def test_follow_up_questions(fake_gemini):
+    fake_gemini("1. 예산은 얼마인가요?\n2. 시간 제한이 있나요?")
+    response = client.post("/decision/questions", json={"content": "점심 고민"})
+    assert response.status_code == 200
+    assert response.json()["questions"] == ["예산은 얼마인가요?", "시간 제한이 있나요?"]
+
+
+def test_profile_in_consult_prompt(fake_gemini):
+    calls = fake_gemini("추천 결과")
+    response = client.post("/decision/consult", json={"content": "점심 고민", "user_profile": {"region": "수원", "interests": ["농구"]}})
+    assert response.status_code == 200
+    assert "수원" in calls[0] and "농구" in calls[0]

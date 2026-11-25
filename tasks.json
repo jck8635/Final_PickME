@@ -1,0 +1,16 @@
+
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "PickME 전체 서버 실행",
+      "type": "shell",
+      "command": "${workspaceFolder}\\start-pickme.bat",
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}

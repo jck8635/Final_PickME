@@ -43,9 +43,9 @@ def generate_embedding(req: EmbeddingRequest):
             embedding=vector,
         )
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(status_code=400, detail=str(error)) from None
     except Exception:
         raise HTTPException(
             status_code=503,
             detail="임베딩 생성에 실패했습니다.",
-        )
+        ) from None

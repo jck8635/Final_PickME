@@ -9,7 +9,12 @@ from fastapi import APIRouter, HTTPException
 
 from app.schemas.ai import ChatRequest, ChatResponse, DecisionRequest, DecisionResponse
 from app.services.chat_service import ChatService
-from app.services.decision_service import ConsultationError, build_prompt, get_ai_consultation
+from app.services.decision_service import (
+    ConsultationError,
+    build_prompt,
+    get_ai_consultation,
+    get_follow_up_questions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +57,32 @@ def consult(req: DecisionRequest) -> DecisionResponse:
         req.conditions.strip(),
         options=[o.model_dump() for o in req.options if o.title.strip()],
         criteria=req.criteria,
+        # 마이페이지 정보를 dict 로 바꿔서 전달
+        user_profile=req.user_profile.model_dump() if req.user_profile else None,
     )
     try:
         return DecisionResponse(result=get_ai_consultation(prompt))
     except ConsultationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from None
+
+
+# 역질문API
+@router.post("/decision/questions")
+def ask_questions(req: DecisionRequest) -> dict:
+    # 고민내용 비어있으면 400 오류
+    content = req.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="고민 내용을 입력해 주세요.")
+
+    # 질문 목록 AI 오류는 503
+    try:
+        questions = get_follow_up_questions(
+            req.title.strip(),
+            content,
+            options=[o.model_dump() for o in req.options if o.title.strip()],
+            criteria=req.criteria,
+        )
+    except ConsultationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from None
+    # ...형태 돌려줌
+    return {"questions": questions}
