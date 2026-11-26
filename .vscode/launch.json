@@ -7,7 +7,8 @@
       "request": "launch",
       "mainClass": "com.pickme.PickmeApplication",
       "projectName": "backend",
-      "cwd": "${workspaceFolder}/backend"
+      "cwd": "${workspaceFolder}/backend",
+      "console": "integratedTerminal"
     },
     {
       "name": "2) FastAPI (8000)",

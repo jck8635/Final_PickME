@@ -33,7 +33,7 @@ public class ReportController {
     @PostMapping("/posts/{id}/reports")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String, String> report(
-            @PathVariable Integer id,
+            @PathVariable("id") Integer id,
             @RequestBody ReportRequest req) {
 
         reports.report(id, req.reason());
