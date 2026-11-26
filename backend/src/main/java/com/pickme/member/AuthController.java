@@ -5,12 +5,6 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,18 +15,16 @@ import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
 
-/** 회원가입 / 로그인 / 로그아웃 / 마이페이지. 세션(JSESSIONID) 기반 로그인입니다. */
+/** 회원가입 / 로그인 / 로그아웃 / 마이페이지. JWT 기반 로그인입니다. */
 @RestController
 @RequestMapping("/api")
 public class AuthController {
 
     private final MemberService memberService;
-    private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
-
-    public AuthController(MemberService memberService) {
-        this.memberService = memberService;
+    private final TokenService tokens;
+    public AuthController(MemberService memberService, TokenService tokens) {
+        this.memberService = memberService; this.tokens = tokens;
     }
 
     public record SignupRequest(
@@ -96,22 +88,16 @@ public class AuthController {
     }
 
     @PostMapping("/auth/login")
-    public MemberView login(@RequestBody LoginRequest req, HttpServletRequest request,
-            HttpServletResponse response) {
-        User user = memberService.authenticate(req.email(), req.password());
-        signIn(user.getId(), request, response);
-        return MemberView.of(user);
+    public Map<String,Object> login(@RequestBody LoginRequest req, HttpServletRequest request, HttpServletResponse response) {
+        tokens.limit("member",req.email(),request.getRemoteAddr());
+        User user=memberService.authenticate(req.email(),req.password());
+        tokens.clearLimit("member",req.email());
+        return Map.of("id",user.getId(),"email",user.getEmail(),"nickname",user.getNickname(),"accessToken",tokens.issue(tokens.member(user),request,response));
     }
-
+    @PostMapping("/auth/refresh")
+    public Map<String,String> refresh(HttpServletRequest request,HttpServletResponse response){return Map.of("accessToken",tokens.refresh(request,response));}
     @PostMapping("/auth/logout")
-    public Map<String, String> logout(HttpServletRequest request) {
-        HttpSession session = request.getSession(false);
-        if (session != null) {
-            session.invalidate();
-        }
-        SecurityContextHolder.clearContext();
-        return Map.of("message", "로그아웃되었습니다.");
-    }
+    public Map<String,String> logout(HttpServletRequest request,HttpServletResponse response){tokens.logout(request,response);return Map.of("message","로그아웃되었습니다.");}
 
     @PatchMapping("/members/me/nickname")
     public MemberView changeNickname(@RequestBody NicknameRequest req) {
@@ -119,27 +105,9 @@ public class AuthController {
     }
 
     @PatchMapping("/members/me/password")
-    public Map<String, String> changePassword(@RequestBody PasswordRequest req, HttpServletRequest request) {
-        memberService.changePassword(LoginUser.requireId(), req.currentPassword(), req.newPassword(),
-                req.passwordConfirmation());
-        // 비밀번호 변경 후 세션 ID 를 새로 발급 (Flask 의 session.clear() 후 재로그인에 해당)
-        request.changeSessionId();
-        return Map.of("message", "비밀번호를 변경했습니다.");
-    }
-
-    private void signIn(Integer userId, HttpServletRequest request, HttpServletResponse response) {
-        // 세션 고정 공격 방지: 기존 세션을 버리고 새로 만듭니다.
-        HttpSession old = request.getSession(false);
-        if (old != null) {
-            old.invalidate();
-        }
-        request.getSession(true);
-
-        var auth = UsernamePasswordAuthenticationToken.authenticated(
-                new LoginUser(userId), null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(auth);
-        SecurityContextHolder.setContext(context);
-        securityContextRepository.saveContext(context, request, response);
+    public Map<String,String> changePassword(@RequestBody PasswordRequest req,HttpServletRequest request,HttpServletResponse response){
+        memberService.changePassword(LoginUser.requireId(),req.currentPassword(),req.newPassword(),req.passwordConfirmation());
+        tokens.logout(request,response);
+        return Map.of("message","비밀번호를 변경했습니다. 다시 로그인해주세요.");
     }
 }

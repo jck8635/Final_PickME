@@ -4,10 +4,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,9 +14,10 @@ import jakarta.servlet.http.HttpServletResponse;
 public class AdminAuthController {
 
     private final AdminAccess admins;
+    private final TokenService tokens;
 
-    public AdminAuthController(AdminAccess admins) {
-        this.admins = admins;
+    public AdminAuthController(AdminAccess admins, TokenService tokens) {
+        this.admins = admins; this.tokens=tokens;
     }
 
     public record Credentials(String username, String password) {
@@ -47,41 +44,11 @@ public class AdminAuthController {
             HttpServletRequest request,
             HttpServletResponse response) {
 
-        var principal = admins.authenticate(req.username(), req.password());
-
-        var old = request.getSession(false);
-        if (old != null) {
-            old.invalidate();
-        }
-
-        request.getSession(true);
-
-        var auth = UsernamePasswordAuthenticationToken.authenticated(
-                principal,
-                null,
-                List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
-
-        var context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(auth);
-
-        SecurityContextHolder.setContext(context);
-
-        new HttpSessionSecurityContextRepository()
-                .saveContext(context, request, response);
-
-        return Map.of("username", principal.username());
+        tokens.limit("admin",req.username(),request.getRemoteAddr());
+        var principal=admins.authenticate(req.username(),req.password());
+        tokens.clearLimit("admin",req.username());
+        return Map.of("username",principal.username(),"accessToken",tokens.issue(tokens.admin(principal.username()),request,response));
     }
-
     @PostMapping("/logout")
-    public Map<String, String> logout(HttpServletRequest request) {
-        var session = request.getSession(false);
-
-        if (session != null) {
-            session.invalidate();
-        }
-
-        SecurityContextHolder.clearContext();
-
-        return Map.of("message", "관리자 로그아웃되었습니다.");
-    }
+    public Map<String,String> logout(HttpServletRequest request,HttpServletResponse response){tokens.logout(request,response);return Map.of("message","관리자 로그아웃되었습니다.");}
 }

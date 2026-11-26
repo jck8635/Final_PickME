@@ -45,7 +45,7 @@ export default function MyPage() {
       setCurrentPassword("");
       setNewPassword("");
       setPasswordConfirmation("");
-      flash("비밀번호를 변경했습니다.");
+      flash("비밀번호를 변경했습니다. 다시 로그인해주세요.");
     } catch (error) {
       flash(errorMessage(error));
     } finally {

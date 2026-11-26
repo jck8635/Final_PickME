@@ -19,9 +19,11 @@ import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.cors.*;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import com.pickme.member.DeletedMemberFilter;
+import com.pickme.member.JwtAuthenticationFilter;
+import com.pickme.member.TokenService;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import com.pickme.member.LegacyAwarePasswordEncoder;
-import com.pickme.member.UserRepository;
+
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -34,14 +36,13 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            UserRepository users) throws Exception {
+            TokenService tokens) throws Exception {
 
         http
             .csrf(csrf -> csrf.spa())
             .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
-            .addFilterBefore(
-                    new DeletedMemberFilter(users),
-                    AuthorizationFilter.class)
+            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .addFilterBefore(new JwtAuthenticationFilter(tokens), AuthorizationFilter.class)
             .cors(Customizer.withDefaults())
             .formLogin(AbstractHttpConfigurer::disable)
             .httpBasic(AbstractHttpConfigurer::disable)
@@ -53,7 +54,8 @@ public class SecurityConfig {
                         "/api/admin/auth/me").permitAll()
                 .requestMatchers(
                         HttpMethod.POST,
-                        "/api/admin/auth/login").permitAll()
+                        "/api/admin/auth/login",
+                        "/api/admin/auth/logout").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
 
                 .requestMatchers(
@@ -65,7 +67,8 @@ public class SecurityConfig {
                         HttpMethod.POST,
                         "/api/auth/signup",
                         "/api/auth/login",
-                        "/api/auth/logout").permitAll()
+                        "/api/auth/logout",
+                        "/api/auth/refresh").permitAll()
                 .requestMatchers(
                         HttpMethod.POST,
                         "/api/chat",

@@ -29,6 +29,9 @@ public class AdminAccess {
         this.encoder = encoder;
     }
 
+    String configuredName() { return username; }
+    String fingerprint() { return TokenService.hash(passwordHash); }
+
     public boolean available() {
         return !username.isBlank() && !passwordHash.isBlank();
     }

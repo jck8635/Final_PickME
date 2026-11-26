@@ -1,0 +1,2 @@
+import {test,expect} from '@playwright/test';import {login,response} from './support';
+test('고민기록 조회 및 통계 API',async({page})=>{await login(page);const list=response(page,'/history/page');await page.goto('/history');const r=await list;expect(r.ok()).toBeTruthy();expect((await r.request().allHeaders()).authorization?.startsWith('Bearer ')).toBe(true);await expect(page.getByRole('heading',{name:'나의 고민 기록'})).toBeVisible();const stats=response(page,'/history/stats');await page.getByRole('button',{name:'나의 고민 통계 보기'}).click();expect((await stats).ok()).toBeTruthy();});

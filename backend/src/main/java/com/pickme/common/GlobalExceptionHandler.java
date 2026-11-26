@@ -43,6 +43,11 @@ public class GlobalExceptionHandler {
         return body(HttpStatus.NOT_FOUND, "요청한 주소를 찾을 수 없습니다.");
     }
 
+    @ExceptionHandler(org.springframework.data.redis.RedisConnectionFailureException.class)
+    ResponseEntity<Map<String, String>> handleRedis(Exception e) {
+        return body(HttpStatus.SERVICE_UNAVAILABLE, "인증 저장소에 연결할 수 없습니다.");
+    }
+
     @ExceptionHandler(Exception.class)
     ResponseEntity<Map<String, String>> handleUnknown(Exception e) {
         log.error("처리하지 못한 오류", e);

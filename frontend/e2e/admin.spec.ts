@@ -1,0 +1,3 @@
+import {test,expect} from '@playwright/test';import {login,response,guard,env} from './support';
+test('일반 회원 관리자 화면 접근 차단',async({page})=>{await login(page);await page.goto('/admin');await expect(page).toHaveURL(/\/admin\/login/);});
+test('관리자 로그인 및 운영 API 조회',async({page})=>{guard();await page.goto('/admin/login');await page.locator('#admin-username').fill(env('E2E_ADMIN_USERNAME'));await page.locator('#admin-password').fill(env('E2E_ADMIN_PASSWORD'));const logged=response(page,'/admin/auth/login','POST');const overview=response(page,'/admin/overview');await page.getByRole('button',{name:'관리자 로그인',exact:true}).click();expect((await logged).ok()).toBeTruthy();expect((await overview).ok()).toBeTruthy();await expect(page).toHaveURL(/\/admin$/);});

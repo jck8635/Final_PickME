@@ -26,7 +26,7 @@ export default function LoginPage() {
     setSubmitting(true)
     try {
       const res = await api.post<Member>('/auth/login', { email, password })
-      setUser(res.data)
+      setUser({ id: res.data.id, email: res.data.email, nickname: res.data.nickname })
       navigate(target, { replace: true })
     } catch (error) {
       flash(errorMessage(error))

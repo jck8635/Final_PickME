@@ -28,7 +28,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -81,26 +80,26 @@ class ApiFlowTest {
 
     // ---------- helpers ----------
 
-    private MvcResult postJson(String url, Object body, MockHttpSession session) throws Exception {
+    private MvcResult postJson(String url, Object body, String session) throws Exception {
         var req = post(url).with(csrf()).contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(body));
         if (session != null) {
-            req.session(session);
+            req.header("Authorization", "Bearer " + session);
         }
         return mvc.perform(req).andReturn();
     }
 
-    private MockHttpSession signupAndLogin(String email, String nickname) throws Exception {
+    private String signupAndLogin(String email, String nickname) throws Exception {
         MvcResult signup = postJson("/api/auth/signup",
                 new Signup(email, nickname, "password123"), null);
         assertThat(signup.getResponse().getStatus()).isEqualTo(201);
         return login(email, "password123");
     }
 
-    private MockHttpSession login(String email, String password) throws Exception {
+    private String login(String email, String password) throws Exception {
         MvcResult res = postJson("/api/auth/login", new Login(email, password), null);
         assertThat(res.getResponse().getStatus()).isEqualTo(200);
-        return (MockHttpSession) res.getRequest().getSession(false);
+        return json(res).get("accessToken").asString();
     }
 
     private JsonNode json(MvcResult res) throws Exception {
@@ -117,9 +116,9 @@ class ApiFlowTest {
 
     @Test
     void signupLoginMeLogout() throws Exception {
-        MockHttpSession session = signupAndLogin("Member@Example.com", "멤버1");
+        String session = signupAndLogin("Member@Example.com", "멤버1");
 
-        mvc.perform(get("/api/auth/me").session(session))
+        mvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.user.email").value("member@example.com"))
                 .andExpect(jsonPath("$.user.nickname").value("멤버1"));
@@ -135,6 +134,29 @@ class ApiFlowTest {
 
         postJson("/api/auth/logout", null, session);
         mvc.perform(get("/api/auth/me")).andExpect(jsonPath("$.user").isEmpty());
+    }
+
+    private jakarta.servlet.http.Cookie refreshCookie(MvcResult result) {
+        String header = result.getResponse().getHeaders("Set-Cookie").stream()
+                .filter(h -> h.startsWith("PICKME_REFRESH=")).findFirst().orElseThrow();
+        return new jakarta.servlet.http.Cookie("PICKME_REFRESH", header.split(";",2)[0].substring("PICKME_REFRESH=".length()));
+    }
+
+    @Test
+    void refreshRotationAndReuseRevokesSession() throws Exception {
+        postJson("/api/auth/signup", new Signup("rotation@example.com", "회전테스트", "password123"), null);
+        var login = postJson("/api/auth/login", new Login("rotation@example.com", "password123"), null);
+        assertThat(login.getResponse().getStatus()).isEqualTo(200);
+        var old = refreshCookie(login);
+        var refreshed = mvc.perform(post("/api/auth/refresh").with(csrf()).cookie(old))
+                .andExpect(status().isOk()).andReturn();
+        var next = refreshCookie(refreshed);
+        assertThat(next.getValue()).isNotEqualTo(old.getValue());
+        String token = json(refreshed).get("accessToken").asString();
+        mvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + token)).andExpect(status().isOk());
+        mvc.perform(post("/api/auth/refresh").with(csrf()).cookie(old)).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + token)).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/refresh").with(csrf()).cookie(next)).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -153,21 +175,21 @@ class ApiFlowTest {
     void legacyFlaskUserCanLogIn() throws Exception {
         jdbc.update("insert into \"user\" (email, password_hash, nickname) values (?, ?, ?)",
                 "legacy@example.com", LegacyAwarePasswordEncoderTest.SCRYPT, "레거시");
-        MockHttpSession session = login("legacy@example.com", "pickme-test-pw");
-        mvc.perform(get("/api/auth/me").session(session))
+        String session = login("legacy@example.com", "pickme-test-pw");
+        mvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + session))
                 .andExpect(jsonPath("$.user.nickname").value("레거시"));
     }
 
     @Test
     void changeNicknameAndPassword() throws Exception {
-        MockHttpSession session = signupAndLogin("mypage@example.com", "마이페이지");
+        String session = signupAndLogin("mypage@example.com", "마이페이지");
 
-        mvc.perform(patch("/api/members/me/nickname").with(csrf()).session(session)
+        mvc.perform(patch("/api/members/me/nickname").with(csrf()).header("Authorization", "Bearer " + session)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"nickname\":\"새닉네임\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nickname").value("새닉네임"));
 
-        mvc.perform(patch("/api/members/me/password").with(csrf()).session(session)
+        mvc.perform(patch("/api/members/me/password").with(csrf()).header("Authorization", "Bearer " + session)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"currentPassword\":\"password123\",\"newPassword\":\"newpass456\","
                         + "\"passwordConfirmation\":\"newpass456\"}"))
@@ -210,7 +232,7 @@ class ApiFlowTest {
     @Test
     void manualSaveCreatesHistoryForLoggedInUser() throws Exception {
         when(aiClient.consult(any())).thenReturn("짬뽕을 추천해요.");
-        MockHttpSession session = signupAndLogin("history@example.com", "기록왕");
+        String session = signupAndLogin("history@example.com", "기록왕");
 
         String body = """
                 {"categories":["음식/식사","없는카테고리"],"style":"fact","title":"점심 고민",
@@ -218,14 +240,14 @@ class ApiFlowTest {
                  "options":[{"title":"짬뽕","note":"얼큰"},{"title":"짜장면","note":""},{"title":"  ","note":""}],
                  "criteria":[{"name":"비용 (예산)","weight":"5"},{"name":"시간 효율","weight":"보류"}]}
                 """;
-        MvcResult res = mvc.perform(post("/api/decisions/consult").with(csrf()).session(session)
+        MvcResult res = mvc.perform(post("/api/decisions/consult").with(csrf()).header("Authorization", "Bearer " + session)
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andReturn();
         assertThat(res.getResponse().getStatus()).isEqualTo(200);
         assertThat(json(res).get("result").asString()).isEqualTo("짬뽕을 추천해요.");
         assertThat(json(res).get("decisionId").isNull()).isTrue();
         var saveBody = objectMapper.readTree(body);
         ((tools.jackson.databind.node.ObjectNode) saveBody).put("result", "짬뽕을 추천해요.");
-        MvcResult saved = mvc.perform(post("/api/decisions/save").with(csrf()).session(session)
+        MvcResult saved = mvc.perform(post("/api/decisions/save").with(csrf()).header("Authorization", "Bearer " + session)
                 .contentType(MediaType.APPLICATION_JSON).content(saveBody.toString()))
                 .andExpect(status().isOk()).andReturn();
         int id = json(saved).get("decisionId").asInt();
@@ -238,7 +260,7 @@ class ApiFlowTest {
         assertThat(sent.options()).hasSize(2);
         assertThat(sent.criteria()).isEqualTo("비용 (예산)(5점), 시간 효율(보류)");
 
-        MvcResult list = mvc.perform(get("/api/history").session(session)).andReturn();
+        MvcResult list = mvc.perform(get("/api/history").header("Authorization", "Bearer " + session)).andReturn();
         JsonNode item = json(list).get(0);
         assertThat(item.get("id").asInt()).isEqualTo(id);
         assertThat(item.get("title").asString()).isEqualTo("점심 고민");
@@ -246,28 +268,28 @@ class ApiFlowTest {
         assertThat(item.get("result").asString()).isEqualTo("짬뽕을 추천해요.");
         assertThat(item.get("options").get(0).get("title").asString()).isEqualTo("짬뽕");
 
-        assertThat(json(mvc.perform(get("/api/history").param("q", "점심").session(session)).andReturn())).hasSize(1);
-        assertThat(json(mvc.perform(get("/api/history").param("q", "없는말").session(session)).andReturn())).isEmpty();
-        assertThat(json(mvc.perform(get("/api/history").param("category", "진로/직업").session(session))
+        assertThat(json(mvc.perform(get("/api/history").param("q", "점심").header("Authorization", "Bearer " + session)).andReturn())).hasSize(1);
+        assertThat(json(mvc.perform(get("/api/history").param("q", "없는말").header("Authorization", "Bearer " + session)).andReturn())).isEmpty();
+        assertThat(json(mvc.perform(get("/api/history").param("category", "진로/직업").header("Authorization", "Bearer " + session))
                 .andReturn())).isEmpty();
 
-        mvc.perform(post("/api/history/" + id + "/bookmark").with(csrf()).session(session))
+        mvc.perform(post("/api/history/" + id + "/bookmark").with(csrf()).header("Authorization", "Bearer " + session))
                 .andExpect(jsonPath("$.bookmarked").value(true));
-        mvc.perform(put("/api/history/" + id + "/retrospective").with(csrf()).session(session)
+        mvc.perform(put("/api/history/" + id + "/retrospective").with(csrf()).header("Authorization", "Bearer " + session)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"actualChoice\":\"짜장면\",\"satisfactionScore\":\"6\",\"retrospectiveNote\":\"\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("만족도 점수는 1점에서 5점 사이여야 합니다."));
-        mvc.perform(put("/api/history/" + id + "/retrospective").with(csrf()).session(session)
+        mvc.perform(put("/api/history/" + id + "/retrospective").with(csrf()).header("Authorization", "Bearer " + session)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"actualChoice\":\"짜장면\",\"satisfactionScore\":\"5\",\"retrospectiveNote\":\"좋았음\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.satisfactionScore").value(5));
 
-        MockHttpSession other = signupAndLogin("other@example.com", "남");
-        mvc.perform(delete("/api/history/" + id).with(csrf()).session(other)).andExpect(status().isNotFound());
-        mvc.perform(delete("/api/history/" + id).with(csrf()).session(session)).andExpect(status().isOk());
-        assertThat(json(mvc.perform(get("/api/history").session(session)).andReturn())).isEmpty();
+        String other = signupAndLogin("other@example.com", "남");
+        mvc.perform(delete("/api/history/" + id).with(csrf()).header("Authorization", "Bearer " + other)).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/history/" + id).with(csrf()).header("Authorization", "Bearer " + session)).andExpect(status().isOk());
+        assertThat(json(mvc.perform(get("/api/history").header("Authorization", "Bearer " + session)).andReturn())).isEmpty();
     }
 
     @Test
@@ -299,7 +321,7 @@ class ApiFlowTest {
 
     @Test
     void communityPaginatesWithStableOrderAndFilter() throws Exception {
-        MockHttpSession user = signupAndLogin(
+        String user = signupAndLogin(
                 "pagination@example.com",
                 "페이지");
 
@@ -334,7 +356,7 @@ class ApiFlowTest {
                                     .param("q", "페이지")
                                     .param("scope", "mine")
                                     .param("page", String.valueOf(page))
-                                    .session(user))
+                                    .header("Authorization", "Bearer " + user))
                             .andExpect(status().isOk())
                             .andReturn());
 
@@ -385,7 +407,7 @@ class ApiFlowTest {
 
     @Test
     void moderationBlocksWritesAndReturnsWarnings() throws Exception {
-        MockHttpSession user = signupAndLogin("moderation@example.com", "검사");
+        String user = signupAndLogin("moderation@example.com", "검사");
         Post input = new Post("모델 검사", "입력", "기타", List.of("선택 A", "선택 B"));
         var fields = Map.of("title", input.title(), "content", input.content(), "options", input.options());
 
@@ -410,7 +432,7 @@ class ApiFlowTest {
 
         when(moderation.check(Map.of("title", "차단 제목", "content", "입력")))
                 .thenThrow(new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "차단"));
-        mvc.perform(put("/api/community/posts/" + id).with(csrf()).session(user)
+        mvc.perform(put("/api/community/posts/" + id).with(csrf()).header("Authorization", "Bearer " + user)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(new Post("차단 제목", "입력", "기타", null))))
                 .andExpect(status().is(422));
@@ -419,7 +441,7 @@ class ApiFlowTest {
 
         postJson("/api/community/posts/" + id + "/comments", new Comment("기존 댓글"), user);
         int commentId = jdbc.queryForObject("select id from comment where post_id = ?", Integer.class, id);
-        mvc.perform(put("/api/community/posts/" + id + "/comments/" + commentId).with(csrf()).session(user)
+        mvc.perform(put("/api/community/posts/" + id + "/comments/" + commentId).with(csrf()).header("Authorization", "Bearer " + user)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(new Comment("차단 입력"))))
                 .andExpect(status().is(422));
@@ -429,8 +451,8 @@ class ApiFlowTest {
 
     @Test
     void communityFlow() throws Exception {
-        MockHttpSession alice = signupAndLogin("alice@example.com", "앨리스");
-        MockHttpSession bob = signupAndLogin("bob@example.com", "밥");
+        String alice = signupAndLogin("alice@example.com", "앨리스");
+        String bob = signupAndLogin("bob@example.com", "밥");
 
         MvcResult bad = postJson("/api/community/posts",
                 new Post("제목", "내용", "음식/식사", List.of("하나")), alice);
@@ -441,7 +463,7 @@ class ApiFlowTest {
         assertThat(created.getResponse().getStatus()).isEqualTo(201);
         int postId = json(created).get("id").asInt();
 
-        JsonNode feed = json(mvc.perform(get("/api/community/posts").session(bob)).andReturn());
+        JsonNode feed = json(mvc.perform(get("/api/community/posts").header("Authorization", "Bearer " + bob)).andReturn());
         JsonNode post = feed.get("posts").get(0);
         assertThat(post.get("options")).hasSize(2);
         int optionA = post.get("options").get(0).get("id").asInt();
@@ -453,14 +475,14 @@ class ApiFlowTest {
         postJson("/api/community/posts/" + postId + "/like", null, bob);
         postJson("/api/community/posts/" + postId + "/comments", new Comment("짜장면 추천"), bob);
 
-        feed = json(mvc.perform(get("/api/community/posts").param("category", "음식/식사").session(bob))
+        feed = json(mvc.perform(get("/api/community/posts").param("category", "음식/식사").header("Authorization", "Bearer " + bob))
                 .andReturn());
         assertThat(feed.get("featuredPost").get("id").asInt()).isEqualTo(postId);
         assertThat(feed.get("featuredPost").get("count").asLong()).isEqualTo(2);
         assertThat(feed.get("posts").get(0).get("commentCount").asInt()).isEqualTo(1);
         assertThat(feed.get("posts").get(0).get("comments")).isEmpty();
 
-        post = json(mvc.perform(get("/api/community/posts/" + postId).session(bob)).andReturn());
+        post = json(mvc.perform(get("/api/community/posts/" + postId).header("Authorization", "Bearer " + bob)).andReturn());
         assertThat(post.get("totalVotes").asLong()).isEqualTo(2);
         assertThat(post.get("options").get(1).get("count").asLong()).isEqualTo(2);
         assertThat(post.get("options").get(1).get("percent").asInt()).isEqualTo(100);
@@ -476,19 +498,19 @@ class ApiFlowTest {
         assertThat(json(mvc.perform(get("/api/community/posts").param("q", "짜장")).andReturn())
                 .get("posts")).hasSize(1);
 
-        MvcResult forbidden = mvc.perform(put("/api/community/posts/" + postId).with(csrf()).session(bob)
+        MvcResult forbidden = mvc.perform(put("/api/community/posts/" + postId).with(csrf()).header("Authorization", "Bearer " + bob)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(new Post("x", "y", "기타", null)))).andReturn();
         assertThat(forbidden.getResponse().getStatus()).isEqualTo(403);
 
         int commentId = comment.get("id").asInt();
-        mvc.perform(put("/api/community/posts/" + postId + "/comments/" + commentId).with(csrf()).session(bob)
+        mvc.perform(put("/api/community/posts/" + postId + "/comments/" + commentId).with(csrf()).header("Authorization", "Bearer " + bob)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"수정된 댓글\"}"))
                 .andExpect(status().isOk());
-        mvc.perform(delete("/api/community/posts/" + postId + "/votes").with(csrf()).session(bob))
+        mvc.perform(delete("/api/community/posts/" + postId + "/votes").with(csrf()).header("Authorization", "Bearer " + bob))
                 .andExpect(jsonPath("$.message").value("투표를 취소했습니다."));
 
-        mvc.perform(delete("/api/community/posts/" + postId).with(csrf()).session(alice))
+        mvc.perform(delete("/api/community/posts/" + postId).with(csrf()).header("Authorization", "Bearer " + alice))
                 .andExpect(status().isOk());
         assertThat(json(mvc.perform(get("/api/community/posts")).andReturn()).get("posts")).isEmpty();
         assertThat(jdbc.queryForObject("select count(*) from community_votes", Integer.class)).isZero();

@@ -33,6 +33,8 @@ ai-server/models/*.pt
 # React
 node_modules/
 frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
 .vite/
 coverage/
 *.tsbuildinfo
@@ -44,3 +46,4 @@ coverage/
 # 개인 도구 설정
 .claude/
 /batch_embed_test.py
+admin-local.properties

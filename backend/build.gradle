@@ -40,6 +40,8 @@ dependencies {
 
     // 보안 (로그인/비밀번호 해시/CORS)
     implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.security:spring-security-oauth2-jose'
     // 기존 Flask(Werkzeug) scrypt 비밀번호 해시 검증용
     implementation 'org.bouncycastle:bcprov-jdk18on:1.81'
 

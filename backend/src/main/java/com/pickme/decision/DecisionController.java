@@ -80,12 +80,32 @@ public class DecisionController {
     }
 
     private UUID begin(ConsultRequest req, Integer userId, UUID sessionId, String source) {
-        if (req.content() == null || req.content().isBlank() || req.content().strip().length() > 5000)
+
+        // 고민 내용이 비어 있는 경우
+        if (req.content() == null || req.content().isBlank()) {
+            throw ApiException.badRequest("고민 내용을 입력해 주세요.");
+        }
+
+        // 고민 내용이 5,000자를 초과하는 경우
+        if (req.content().strip().length() > 5000) {
             throw ApiException.badRequest("고민 내용을 5,000자 이내로 입력해 주세요.");
-        String style = req.style() != null && List.of("soft", "objective", "fact").contains(req.style())
-                ? req.style()
-                : "objective";
-        return conversations.begin(userId, sessionId, req.title(), style, req.content(), source, req);
+        }
+
+        // 상담 스타일 검증
+        String style = req.style() != null
+                && List.of("soft", "objective", "fact").contains(req.style())
+                        ? req.style()
+                        : "objective";
+
+        // 상담 세션 및 사용자 메시지 저장
+        return conversations.begin(
+                userId,
+                sessionId,
+                req.title(),
+                style,
+                req.content(),
+                source,
+                req);
     }
 
     @GetMapping("/popular")

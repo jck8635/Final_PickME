@@ -1,4 +1,7 @@
 spring:
+  data:
+    redis:
+      url: ${TEST_REDIS_URL:redis://localhost:6379/15}
   datasource:
     url: jdbc:h2:mem:pickme-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
     username: sa

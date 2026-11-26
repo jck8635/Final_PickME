@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import type { ReactNode } from "react";
-import { api } from "../api/client";
+import { api, ensureToken } from "../api/client";
 import type { Member } from "../api/types";
 
 // ─────────────────────────────
@@ -59,6 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 일반 회원과 관리자 로그인 상태를 함께 확인합니다.
   const refresh = useCallback(async () => {
     try {
+      await ensureToken();
       const [memberResult, adminResult] = await Promise.allSettled([
         api.get<{ user: Member | null }>("/auth/me"),
 
@@ -86,7 +87,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    const clear = () => { setUserState(null); setAdminState(null); };
+    window.addEventListener('pickme-auth-cleared', clear);
     void refresh();
+    return () => window.removeEventListener('pickme-auth-cleared', clear);
   }, [refresh]);
 
   const value = useMemo(

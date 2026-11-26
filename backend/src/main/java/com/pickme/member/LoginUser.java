@@ -8,7 +8,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.pickme.common.ApiException;
 
-/** 세션에 저장되는 로그인 정보(인증 principal). Flask 의 session['user_id'] 에 해당. */
+/** JWT 검증 후 생성되는 로그인 정보(인증 principal). Flask 의 session['user_id'] 에 해당. */
 public record LoginUser(Integer id) implements Serializable {
 
     /** 로그인하지 않았으면 null */
